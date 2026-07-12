@@ -14,7 +14,7 @@ import {
 
 export default function Dashboard() {
   return (
-    <div className="relative w-[840px] h-[880px] -translate-y-[70px] translate-x-[40px] rotate-[7deg]">
+    <div className="relative w-[840px] h-[880px] -translate-y-[70px] translate-x-[-10px] rotate-[7deg]">
 
       {/* Ambient glow — outer soft wash */}
       <div className="absolute -inset-28 rounded-[72px] bg-[#D4AF37]/25 blur-[150px]" />
@@ -265,29 +265,4 @@ export default function Dashboard() {
                 <button className="text-[11px] font-medium text-[#D4AF37]">View All</button>
               </div>
 
-              <div className="mt-3 space-y-4">
-                {[
-                  { label: "Daily Drawdown", desc: "Maximum loss allowed per day", value: "10%" },
-                  { label: "Max Drawdown (Overall)", desc: "Maximum loss allowed overall", value: "20%" },
-                ].map((item) => (
-                  <div key={item.label} className="flex items-start justify-between gap-2">
-                    <div className="flex items-start gap-2">
-                      <ShieldCheck className="mt-0.5 h-4 w-4 flex-shrink-0 text-[#D4AF37]" />
-                      <div>
-                        <p className="text-xs font-medium text-zinc-200">{item.label}</p>
-                        <p className="text-[11px] text-zinc-500">{item.desc}</p>
-                      </div>
-                    </div>
-                    <span className="flex-shrink-0 text-xs font-semibold text-zinc-300">
-                      {item.value}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
+              <div

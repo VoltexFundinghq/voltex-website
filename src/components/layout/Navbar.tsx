@@ -7,9 +7,9 @@ import { Button } from "@/components/ui/button";
 
 export default function Navbar() {
   return (
-    <header className="w-full pt-4">
-      <div className="w-full border-b border-[#D4AF37]/30 bg-[#090909]/95 py-2 shadow-[0_0_40px_rgba(212,175,55,.08)]">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-8">
+    <header className="w-full pt-2">
+      <div className="w-full border-b border-[#D4AF37]/30 bg-[#090909]/95 py-1.5 shadow-[0_0_40px_rgba(212,175,55,.08)]">
+        <div className="mx-auto flex max-w-[1440px] items-center justify-between px-8">
 
           {/* Logo */}
           <Link href="/" className="flex items-center">
@@ -19,22 +19,22 @@ export default function Navbar() {
               width={666}
               height={375}
               priority
-              className="h-32 w-auto drop-shadow-[0_0_14px_rgba(212,175,55,0.35)]"
+              className="h-28 w-auto brightness-110 drop-shadow-[0_0_20px_rgba(212,175,55,0.55)]"
             />
           </Link>
 
           {/* Navigation */}
           <nav className="ml-10 hidden items-center gap-10 lg:flex">
 
-            <Link href="/" className="relative text-base font-semibold text-[#D4AF37]">
+            <Link href="/" className="relative text-lg font-semibold text-[#D4AF37]">
               Home
               <span className="absolute -bottom-2 left-0 h-[2px] w-full rounded-full bg-[#D4AF37]" />
             </Link>
 
-            <Link href="#" className="text-base">Challenges</Link>
-            <Link href="#" className="text-base">Pricing</Link>
-            <Link href="#" className="text-base">Rules</Link>
-            <Link href="#" className="text-base">FAQ</Link>
+            <Link href="#" className="text-lg">Challenges</Link>
+            <Link href="#" className="text-lg">Pricing</Link>
+            <Link href="#" className="text-lg">Rules</Link>
+            <Link href="#" className="text-lg">FAQ</Link>
 
           </nav>
 
@@ -43,13 +43,13 @@ export default function Navbar() {
 
             <Link
               href="/login"
-              className="flex items-center gap-2 rounded-xl px-4 py-2 text-base font-medium text-white transition-all duration-300 hover:bg-[#D4AF37]/10 hover:text-[#D4AF37]"
+              className="flex items-center gap-2 rounded-xl px-4 py-2 text-lg font-medium text-white transition-all duration-300 hover:bg-[#D4AF37]/10 hover:text-[#D4AF37]"
             >
-              <User size={18} />
+              <User size={20} />
               Login
             </Link>
 
-            <Button className="h-11 rounded-xl bg-[#D4AF37] px-6 text-base font-semibold text-black hover:bg-[#F5D573]">
+            <Button className="h-12 rounded-xl bg-[#D4AF37] px-7 text-lg font-semibold text-black hover:bg-[#F5D573]">
               Start Challenge →
             </Button>
 
