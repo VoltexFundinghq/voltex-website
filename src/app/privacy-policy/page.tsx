@@ -1,6 +1,5 @@
 "use client";
 
-import { motion } from "framer-motion";
 import Navbar from "@/components/layout/Navbar";
 import Footer from "@/components/layout/Footer";
 
@@ -21,28 +20,28 @@ export default function PrivacyPolicyPage() {
     <main className="min-h-screen bg-black text-white">
       <Navbar />
 
-      <section className="relative overflow-hidden bg-black pb-8 pt-16">
+      <section className="relative overflow-hidden bg-black pb-8 pt-12 sm:pt-16">
         <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,rgba(212,175,55,.1),transparent_55%)]" />
-        <div className="relative mx-auto max-w-[1000px] px-8">
-          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }} className="mx-auto max-w-2xl text-center">
+        <div className="relative mx-auto max-w-[1000px] px-5 sm:px-8">
+          <div className="mx-auto max-w-2xl text-center">
             <p className="text-xs font-semibold uppercase tracking-[0.35em] text-[#D4AF37]">LEGAL</p>
-            <h1 className="mt-4 text-4xl font-extrabold leading-tight text-white md:text-5xl">Privacy Policy</h1>
+            <h1 className="mt-4 text-3xl font-extrabold leading-tight text-white sm:text-4xl md:text-5xl">Privacy Policy</h1>
             <p className="mx-auto mt-4 text-sm text-zinc-500">Last updated: [Insert Date]</p>
-          </motion.div>
-          <motion.div initial={{ scaleX: 0, opacity: 0 }} animate={{ scaleX: 1, opacity: 1 }} transition={{ duration: 0.5, delay: 0.15 }} className="mx-auto mt-8 h-px w-40 origin-center bg-gradient-to-r from-transparent via-[#D4AF37] to-transparent" />
+          </div>
+          <div className="mx-auto mt-8 h-px w-40 bg-gradient-to-r from-transparent via-[#D4AF37] to-transparent" />
         </div>
       </section>
 
-      <section className="relative overflow-hidden bg-black py-12">
-        <div className="relative mx-auto max-w-[800px] px-8">
-          <div className="space-y-8">
-            {sections.map((s, i) => (
-              <motion.div key={s.title} initial={{ opacity: 0, y: 16 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ duration: 0.4, delay: i * 0.03 }}>
-                <h2 className="text-lg font-extrabold text-white">{s.title}</h2>
+      <section className="relative overflow-hidden bg-black py-10 sm:py-12">
+        <div className="relative mx-auto max-w-[800px] px-5 sm:px-8">
+          <div className="space-y-7 sm:space-y-8">
+            {sections.map((s) => (
+              <div key={s.title}>
+                <h2 className="text-base font-extrabold text-white sm:text-lg">{s.title}</h2>
                 <div className="mt-3 space-y-3">
                   {s.body.map((p, pi) => (<p key={pi} className="text-sm leading-7 text-zinc-400">{p}</p>))}
                 </div>
-              </motion.div>
+              </div>
             ))}
           </div>
         </div>

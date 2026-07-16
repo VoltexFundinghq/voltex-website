@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { motion } from "framer-motion";
 import Link from "next/link";
 import { Mail, Lock } from "lucide-react";
 import Navbar from "@/components/layout/Navbar";
@@ -20,24 +19,24 @@ export default function LoginPage() {
     <main className="min-h-screen bg-black text-white">
       <Navbar />
 
-      <section className="relative overflow-hidden bg-black pb-8 pt-16">
+      <section className="relative overflow-hidden bg-black pb-8 pt-12 sm:pt-16">
         <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,rgba(212,175,55,.1),transparent_55%)]" />
-        <div className="relative mx-auto max-w-[1440px] px-8">
-          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }} className="mx-auto max-w-2xl text-center">
+        <div className="relative mx-auto max-w-[1440px] px-5 sm:px-8">
+          <div className="mx-auto max-w-2xl text-center">
             <p className="text-xs font-semibold uppercase tracking-[0.35em] text-[#D4AF37]">LOGIN</p>
-            <h1 className="mt-4 text-4xl font-extrabold leading-tight text-white md:text-5xl">Welcome Back, Trader.</h1>
+            <h1 className="mt-4 text-3xl font-extrabold leading-tight text-white sm:text-4xl md:text-5xl">Welcome Back, Trader.</h1>
             <p className="mx-auto mt-5 max-w-xl text-base leading-7 text-zinc-400">
               Log in to access your challenge dashboard, track your progress, and manage your funded account.
             </p>
-          </motion.div>
-          <motion.div initial={{ scaleX: 0, opacity: 0 }} animate={{ scaleX: 1, opacity: 1 }} transition={{ duration: 0.5, delay: 0.15 }} className="mx-auto mt-8 h-px w-40 origin-center bg-gradient-to-r from-transparent via-[#D4AF37] to-transparent" />
+          </div>
+          <div className="mx-auto mt-8 h-px w-40 bg-gradient-to-r from-transparent via-[#D4AF37] to-transparent" />
         </div>
       </section>
 
-      <section className="relative overflow-hidden bg-black py-12">
+      <section className="relative overflow-hidden bg-black py-10 sm:py-12">
         <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,rgba(212,175,55,.08),transparent_55%)]" />
-        <div className="relative mx-auto max-w-[480px] px-8">
-          <motion.div initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ duration: 0.4 }} className="rounded-3xl border border-[#D4AF37]/20 bg-white/[0.02] p-8 backdrop-blur-xl sm:p-10">
+        <div className="relative mx-auto max-w-[480px] px-5 sm:px-8">
+          <div className="rounded-3xl border border-[#D4AF37]/20 bg-white/[0.02] p-6 backdrop-blur-xl sm:p-8 sm:p-10">
             {submitted ? (
               <div className="py-10 text-center">
                 <p className="text-xl font-extrabold text-white">Login Coming Soon</p>
@@ -66,7 +65,7 @@ export default function LoginPage() {
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between text-sm">
+                <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
                   <label className="flex items-center gap-2 text-zinc-400">
                     <input type="checkbox" className="h-4 w-4 rounded border-[#D4AF37]/30 bg-black/40 accent-[#D4AF37]" />
                     Remember me
@@ -80,11 +79,11 @@ export default function LoginPage() {
 
                 <p className="text-center text-sm text-zinc-400">
                   Don't have a Voltex Funding account?{" "}
-                  <Link href="/challenges" className="font-semibold text-[#D4AF37] hover:text-[#F5D573]">Start a Challenge</Link>
+                  <Link href="/signup" className="font-semibold text-[#D4AF37] hover:text-[#F5D573]">Sign Up</Link>
                 </p>
               </form>
             )}
-          </motion.div>
+          </div>
         </div>
       </section>
 

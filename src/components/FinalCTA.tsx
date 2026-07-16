@@ -17,9 +17,10 @@ export default function FinalCTA() {
     <section className="relative overflow-hidden bg-black py-24">
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_35%,rgba(212,175,55,.12),transparent_55%)]" />
       <div className="relative mx-auto max-w-[1440px] px-8">
-        <motion.div initial={{ opacity: 0, y: 30 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ duration: 0.5 }} className="mx-auto max-w-3xl text-center">
+
+        <div className="mx-auto max-w-3xl text-center">
           <p className="text-xs font-semibold uppercase tracking-[0.35em] text-[#D4AF37]">READY TO GET FUNDED?</p>
-          <h2 className="mt-4 text-4xl font-extrabold leading-tight text-white md:text-6xl">
+          <h2 className="mt-4 text-4xl font-extrabold leading-tight text-white sm:text-6xl">
             Your Trading Journey <span className="text-[#D4AF37]">Starts Here.</span>
           </h2>
           <p className="mx-auto mt-6 max-w-2xl text-lg leading-8 text-zinc-400">
@@ -33,17 +34,42 @@ export default function FinalCTA() {
               </motion.div>
             </Link>
           </div>
-        </motion.div>
-        <div className="mx-auto mt-16 grid max-w-5xl grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
-          {trustPoints.map((point, i) => {
+        </div>
+
+        {/* Phone: auto-scrolling ticker, no cards */}
+        <div className="relative mt-16 overflow-hidden sm:hidden" style={{ WebkitMaskImage: "linear-gradient(to right, transparent, black 8%, black 92%, transparent)", maskImage: "linear-gradient(to right, transparent, black 8%, black 92%, transparent)" }}>
+          <div className="flex w-max animate-[voltex-marquee-cta_20s_linear_infinite]">
+            {[...trustPoints, ...trustPoints].map((point, i) => {
+              const Icon = point.icon;
+              return (
+                <div key={i} className="flex flex-shrink-0 items-center gap-3.5 pr-12">
+                  <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-lg border border-[#D4AF37]/40 bg-[#D4AF37]/10">
+                    <Icon className="h-5 w-5 text-[#D4AF37]" />
+                  </div>
+                  <p className="whitespace-nowrap text-base font-semibold text-zinc-100">{point.label}</p>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+        <style>{`
+          @keyframes voltex-marquee-cta {
+            from { transform: translateX(0); }
+            to { transform: translateX(-50%); }
+          }
+        `}</style>
+
+        {/* Tablet/Desktop: existing grid, unchanged */}
+        <div className="mx-auto mt-16 hidden max-w-5xl sm:grid sm:grid-cols-2 sm:gap-6 lg:grid-cols-4">
+          {trustPoints.map((point) => {
             const Icon = point.icon;
             return (
-              <motion.div key={point.label} initial={{ opacity: 0, y: 16 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ duration: 0.35, delay: i * 0.06 }} className="flex items-center gap-3.5">
+              <div key={point.label} className="flex items-center gap-3.5">
                 <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-lg border border-[#D4AF37]/40 bg-[#D4AF37]/10">
                   <Icon className="h-5 w-5 text-[#D4AF37]" />
                 </div>
                 <p className="text-base font-semibold text-zinc-100">{point.label}</p>
-              </motion.div>
+              </div>
             );
           })}
         </div>

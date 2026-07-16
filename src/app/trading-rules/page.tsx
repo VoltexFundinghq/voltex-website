@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { motion, useInView, animate, AnimatePresence } from "framer-motion";
+import { useEffect, useState } from "react";
+import { motion, animate, AnimatePresence } from "framer-motion";
 import Link from "next/link";
 import { ShieldCheck, Clock3, CalendarClock, CheckCircle2, Plus, Minus, XCircle } from "lucide-react";
 import Navbar from "@/components/layout/Navbar";
@@ -28,15 +28,12 @@ const faqItems = [
 ];
 
 function Counter({ to, suffix }: { to: number; suffix: string }) {
-  const ref = useRef<HTMLSpanElement>(null);
-  const isInView = useInView(ref, { once: true, margin: "-80px" });
   const [display, setDisplay] = useState(0);
   useEffect(() => {
-    if (!isInView) return;
     const controls = animate(0, to, { duration: 1.4, ease: "easeOut", onUpdate: (v) => setDisplay(Math.round(v)) });
     return () => controls.stop();
-  }, [isInView, to]);
-  return (<span ref={ref}>{display}{suffix}</span>);
+  }, [to]);
+  return (<span>{display}{suffix}</span>);
 }
 
 function handleCardMouseMove(e: React.MouseEvent<HTMLDivElement>) {
@@ -47,6 +44,37 @@ function handleCardMouseMove(e: React.MouseEvent<HTMLDivElement>) {
   e.currentTarget.style.setProperty("--my", `${y}%`);
 }
 
+function RuleCard({ rule }: { rule: (typeof coreRules)[number] }) {
+  const Icon = rule.icon;
+  return (
+    <motion.div whileHover={{ y: -8, scale: 1.02 }} onMouseMove={handleCardMouseMove} className="group relative h-full overflow-hidden rounded-3xl p-[1px]">
+      <motion.div className="pointer-events-none absolute -inset-[60%] opacity-0 transition-opacity duration-500 group-hover:opacity-[0.65]" style={{ background: "conic-gradient(from 0deg, transparent 0deg, #F5D573 8deg, transparent 40deg, transparent 360deg)" }} animate={{ rotate: 360 }} transition={{ duration: 5, repeat: Infinity, ease: "linear" }} />
+      <div className={`relative z-10 h-full overflow-hidden rounded-[calc(1.5rem-1px)] border backdrop-blur-xl transition-colors duration-300 ${rule.featured ? "border-[#D4AF37]/60 bg-[#D4AF37]/[0.05] shadow-[0_0_60px_rgba(212,175,55,.18)]" : "border-[#D4AF37]/20 bg-white/[0.02]"}`}>
+        <div className="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-300 group-hover:opacity-100" style={{ background: "radial-gradient(circle at var(--mx, 50%) var(--my, 50%), rgba(212,175,55,0.18), transparent 45%)" }} />
+        <div className="relative p-6 sm:p-8">
+          <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-[#D4AF37]/30 bg-[#D4AF37]/10 sm:h-16 sm:w-16">
+            <Icon className="h-7 w-7 text-[#D4AF37] sm:h-8 sm:w-8" />
+          </div>
+          <div className="mt-6 sm:mt-8">
+            <h3 className="text-5xl font-black leading-none text-[#D4AF37] sm:text-6xl"><Counter to={rule.value} suffix={rule.suffix} /></h3>
+            <h4 className="mt-3 text-xl font-bold leading-tight text-white sm:text-2xl">{rule.title}</h4>
+          </div>
+          <p className="mt-5 text-sm leading-7 text-zinc-400">{rule.description}</p>
+          <div className="my-6 h-px bg-gradient-to-r from-transparent via-[#D4AF37]/30 to-transparent sm:my-7" />
+          <div className="space-y-3">
+            {rule.bullets.map((item) => (
+              <div key={item} className="flex items-start gap-3">
+                <CheckCircle2 className="mt-0.5 h-5 w-5 flex-shrink-0 text-[#D4AF37]" />
+                <span className="text-sm text-zinc-300">{item}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+
 export default function TradingRulesPage() {
   const [openIndex, setOpenIndex] = useState<number | null>(null);
 
@@ -54,75 +82,52 @@ export default function TradingRulesPage() {
     <main className="min-h-screen bg-black text-white">
       <Navbar />
 
-      <section className="relative overflow-hidden bg-black pb-8 pt-16">
+      <section className="relative overflow-hidden bg-black pb-8 pt-12 sm:pt-16">
         <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,rgba(212,175,55,.1),transparent_55%)]" />
-        <div className="relative mx-auto max-w-[1440px] px-8">
-          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }} className="mx-auto max-w-3xl text-center">
+        <div className="relative mx-auto max-w-[1440px] px-5 sm:px-8">
+          <div className="mx-auto max-w-3xl text-center">
             <p className="text-xs font-semibold uppercase tracking-[0.35em] text-[#D4AF37]">TRADING RULES</p>
-            <h1 className="mt-4 text-4xl font-extrabold leading-tight text-white md:text-5xl">Trade With Confidence.<br />Transparent Rules.</h1>
+            <h1 className="mt-4 text-3xl font-extrabold leading-tight text-white sm:text-4xl md:text-5xl">Trade With Confidence.<br />Transparent Rules.</h1>
             <p className="mx-auto mt-5 max-w-2xl text-base leading-7 text-zinc-400">Everything you need to know before starting your Voltex Funding Challenge. Our rules are designed to reward disciplined traders—not trap them.</p>
-          </motion.div>
-          <motion.div initial={{ scaleX: 0, opacity: 0 }} animate={{ scaleX: 1, opacity: 1 }} transition={{ duration: 0.5, delay: 0.15 }} className="mx-auto mt-8 h-px w-40 origin-center bg-gradient-to-r from-transparent via-[#D4AF37] to-transparent" />
+          </div>
+          <div className="mx-auto mt-8 h-px w-40 bg-gradient-to-r from-transparent via-[#D4AF37] to-transparent" />
         </div>
       </section>
 
-      <section className="relative overflow-hidden bg-black pt-8 pb-20">
+      <section className="relative overflow-hidden bg-black pt-8 pb-16 sm:pb-20">
         <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,rgba(212,175,55,.08),transparent_55%),radial-gradient(circle_at_10%_90%,rgba(212,175,55,.05),transparent_45%)]" />
-        <div className="relative mx-auto max-w-7xl px-6">
-          <div className="grid gap-6 lg:grid-cols-3">
-            {coreRules.map((rule, index) => {
-              const Icon = rule.icon;
-              return (
-                <motion.div key={rule.title} initial={{ opacity: 0, y: 40 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ duration: 0.55, delay: index * 0.15 }} whileHover={{ y: -8, scale: 1.02 }} onMouseMove={handleCardMouseMove} className="group relative overflow-hidden rounded-3xl p-[1px]">
-                  <motion.div className="pointer-events-none absolute -inset-[60%] opacity-0 transition-opacity duration-500 group-hover:opacity-[0.65]" style={{ background: "conic-gradient(from 0deg, transparent 0deg, #F5D573 8deg, transparent 40deg, transparent 360deg)" }} animate={{ rotate: 360 }} transition={{ duration: 5, repeat: Infinity, ease: "linear" }} />
-                  <div className={`relative z-10 h-full overflow-hidden rounded-[calc(1.5rem-1px)] border backdrop-blur-xl transition-colors duration-300 ${rule.featured ? "border-[#D4AF37]/60 bg-[#D4AF37]/[0.05] shadow-[0_0_60px_rgba(212,175,55,.18)]" : "border-[#D4AF37]/20 bg-white/[0.02]"}`}>
-                    <div className="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-300 group-hover:opacity-100" style={{ background: "radial-gradient(circle at var(--mx, 50%) var(--my, 50%), rgba(212,175,55,0.18), transparent 45%)" }} />
-                    <div className="absolute inset-0 opacity-0 transition duration-500 group-hover:opacity-100">
-                      <div className="absolute -right-24 -top-24 h-52 w-52 rounded-full bg-[#D4AF37]/10 blur-3xl" />
-                    </div>
-                    <div className="relative p-8">
-                      <div className="flex h-16 w-16 items-center justify-center rounded-2xl border border-[#D4AF37]/30 bg-[#D4AF37]/10">
-                        <Icon className="h-8 w-8 text-[#D4AF37]" />
-                      </div>
-                      <div className="mt-8">
-                        <h3 className="text-6xl font-black leading-none text-[#D4AF37]"><Counter to={rule.value} suffix={rule.suffix} /></h3>
-                        <h4 className="mt-3 text-2xl font-bold leading-tight text-white">{rule.title}</h4>
-                      </div>
-                      <p className="mt-5 text-sm leading-7 text-zinc-400">{rule.description}</p>
-                      <div className="my-7 h-px bg-gradient-to-r from-transparent via-[#D4AF37]/30 to-transparent" />
-                      <div className="space-y-3">
-                        {rule.bullets.map((item) => (
-                          <div key={item} className="flex items-center gap-3">
-                            <CheckCircle2 className="h-5 w-5 text-[#D4AF37]" />
-                            <span className="text-sm text-zinc-300">{item}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                </motion.div>
-              );
-            })}
+        <div className="relative mx-auto max-w-7xl px-5 sm:px-6">
+
+          <div className="flex gap-5 overflow-x-auto pb-2 snap-x snap-mandatory -mx-5 px-5 lg:hidden [&::-webkit-scrollbar]:hidden" style={{ scrollbarWidth: "none" }}>
+            {coreRules.map((rule) => (
+              <div key={rule.title} className="w-[86%] flex-shrink-0 snap-center sm:w-[420px]">
+                <RuleCard rule={rule} />
+              </div>
+            ))}
+          </div>
+
+          <div className="hidden gap-6 lg:grid lg:grid-cols-3">
+            {coreRules.map((rule) => (<RuleCard key={rule.title} rule={rule} />))}
           </div>
         </div>
       </section>
 
-      <section className="relative overflow-hidden bg-black py-16">
-        <div className="relative mx-auto max-w-[900px] px-8">
-          <motion.h2 initial={{ opacity: 0, y: 16 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ duration: 0.4 }} className="text-center text-3xl font-extrabold text-white">Trading Rules FAQ</motion.h2>
-          <div className="mt-10 space-y-4">
+      <section className="relative overflow-hidden bg-black py-12 sm:py-16">
+        <div className="relative mx-auto max-w-[900px] px-5 sm:px-8">
+          <h2 className="text-center text-2xl font-extrabold text-white sm:text-3xl">Trading Rules FAQ</h2>
+          <div className="mt-8 space-y-4 sm:mt-10">
             {faqItems.map((item, i) => {
               const isOpen = openIndex === i;
               return (
-                <motion.div key={item.q} initial={{ opacity: 0, y: 16 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ duration: 0.3, delay: i * 0.04 }} className="overflow-hidden rounded-2xl border border-[#D4AF37]/20 bg-white/[0.02] backdrop-blur-xl transition-colors duration-300 hover:border-[#D4AF37]/45">
-                  <button onClick={() => setOpenIndex(isOpen ? null : i)} className="flex w-full items-center justify-between gap-4 p-6 text-left">
+                <div key={item.q} className="overflow-hidden rounded-2xl border border-[#D4AF37]/20 bg-white/[0.02] backdrop-blur-xl transition-colors duration-300 hover:border-[#D4AF37]/45">
+                  <button onClick={() => setOpenIndex(isOpen ? null : i)} className="flex w-full items-center justify-between gap-4 p-5 text-left sm:p-6">
                     <span className="text-base font-semibold text-white">{item.q}</span>
                     {isOpen ? <Minus className="h-5 w-5 flex-shrink-0 text-[#D4AF37]" /> : <Plus className="h-5 w-5 flex-shrink-0 text-[#D4AF37]" />}
                   </button>
                   <AnimatePresence initial={false}>
                     {isOpen && (
                       <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.3, ease: "easeInOut" }}>
-                        <div className="space-y-3 px-6 pb-6">
+                        <div className="space-y-3 px-5 pb-5 sm:px-6 sm:pb-6">
                           <p className="text-sm leading-7 text-zinc-400">{item.a}</p>
                           {item.bullets && (
                             <ul className="space-y-2 pl-1">
@@ -144,27 +149,27 @@ export default function TradingRulesPage() {
                       </motion.div>
                     )}
                   </AnimatePresence>
-                </motion.div>
+                </div>
               );
             })}
           </div>
         </div>
       </section>
 
-      <section className="relative overflow-hidden bg-black py-20">
+      <section className="relative overflow-hidden bg-black py-16 sm:py-20">
         <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_30%,rgba(212,175,55,.1),transparent_55%)]" />
-        <div className="relative mx-auto max-w-4xl px-8">
-          <motion.div initial={{ opacity: 0, y: 24 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ duration: 0.4 }} className="relative overflow-hidden rounded-[40px] border border-[#D4AF37]/25 bg-white/[0.03] px-10 py-12 text-center backdrop-blur-xl">
+        <div className="relative mx-auto max-w-4xl px-5 sm:px-8">
+          <div className="relative overflow-hidden rounded-[32px] border border-[#D4AF37]/25 bg-white/[0.03] px-6 py-10 text-center backdrop-blur-xl sm:rounded-[40px] sm:px-10 sm:py-12">
             <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,rgba(212,175,55,.08),transparent_70%)]" />
             <div className="relative">
-              <h2 className="text-3xl font-extrabold text-white">Ready to Start Your Challenge?</h2>
+              <h2 className="text-2xl font-extrabold text-white sm:text-3xl">Ready to Start Your Challenge?</h2>
               <p className="mx-auto mt-4 max-w-xl text-zinc-400">Join disciplined traders who trust Voltex Funding's transparent rules and fair evaluation model.</p>
               <div className="mt-8 flex flex-col items-center justify-center gap-4 sm:flex-row">
-                <Link href="/challenges"><Button className="bg-[#D4AF37] px-8 py-4 text-base font-semibold text-black hover:bg-[#F5D573]">Start Your Challenge</Button></Link>
-                <Link href="/challenges"><Button className="border border-[#D4AF37] bg-transparent px-8 py-4 text-base font-semibold text-white hover:bg-[#D4AF37] hover:text-black">View Challenge Programs</Button></Link>
+                <Link href="/challenges" className="w-full sm:w-auto"><Button className="w-full bg-[#D4AF37] px-8 py-4 text-base font-semibold text-black hover:bg-[#F5D573] sm:w-auto">Start Your Challenge</Button></Link>
+                <Link href="/challenges" className="w-full sm:w-auto"><Button className="w-full border border-[#D4AF37] bg-transparent px-8 py-4 text-base font-semibold text-white hover:bg-[#D4AF37] hover:text-black sm:w-auto">View Challenge Programs</Button></Link>
               </div>
             </div>
-          </motion.div>
+          </div>
         </div>
       </section>
 
