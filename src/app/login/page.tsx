@@ -1,19 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { useActionState } from "react";
 import Link from "next/link";
 import { Mail, Lock } from "lucide-react";
 import Navbar from "@/components/layout/Navbar";
 import Footer from "@/components/layout/Footer";
 import { Button } from "@/components/ui/button";
+import { signIn } from "@/lib/auth/actions";
 
 export default function LoginPage() {
-  const [submitted, setSubmitted] = useState(false);
-
-  function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setSubmitted(true);
-  }
+  const [state, formAction, isPending] = useActionState(signIn, { error: null });
 
   return (
     <main className="min-h-screen bg-black text-white">
@@ -36,53 +32,47 @@ export default function LoginPage() {
       <section className="relative overflow-hidden bg-black py-10 sm:py-12">
         <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,rgba(212,175,55,.08),transparent_55%)]" />
         <div className="relative mx-auto max-w-[480px] px-5 sm:px-8">
-          <div className="rounded-3xl border border-[#D4AF37]/20 bg-white/[0.02] p-6 backdrop-blur-xl sm:p-8 sm:p-10">
-            {submitted ? (
-              <div className="py-10 text-center">
-                <p className="text-xl font-extrabold text-white">Login Coming Soon</p>
-                <p className="mx-auto mt-3 max-w-sm text-sm leading-6 text-zinc-400">
-                  Account login isn't live yet — we're still building this out. Check back soon, or contact support if you need help with your account in the meantime.
-                </p>
-                <Link href="/contact">
-                  <Button className="mt-6 bg-[#D4AF37] px-6 py-3 text-sm font-semibold text-black hover:bg-[#F5D573]">Contact Support</Button>
-                </Link>
+          <div className="rounded-3xl border border-[#D4AF37]/20 bg-white/[0.02] p-6 backdrop-blur-xl sm:p-10">
+            <form action={formAction} className="space-y-5">
+              {state?.error && (
+                <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+                  {state.error}
+                </div>
+              )}
+
+              <div>
+                <label className="text-xs font-semibold uppercase tracking-wide text-[#D4AF37]">Email</label>
+                <div className="relative mt-2">
+                  <Mail className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
+                  <input required name="email" type="email" className="w-full rounded-xl border border-[#D4AF37]/20 bg-black/40 py-3 pl-11 pr-4 text-sm text-white placeholder:text-zinc-600 focus:border-[#D4AF37]/60 focus:outline-none" placeholder="you@example.com" />
+                </div>
               </div>
-            ) : (
-              <form onSubmit={handleSubmit} className="space-y-5">
-                <div>
-                  <label className="text-xs font-semibold uppercase tracking-wide text-[#D4AF37]">Email</label>
-                  <div className="relative mt-2">
-                    <Mail className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
-                    <input required type="email" className="w-full rounded-xl border border-[#D4AF37]/20 bg-black/40 py-3 pl-11 pr-4 text-sm text-white placeholder:text-zinc-600 focus:border-[#D4AF37]/60 focus:outline-none" placeholder="you@example.com" />
-                  </div>
+
+              <div>
+                <label className="text-xs font-semibold uppercase tracking-wide text-[#D4AF37]">Password</label>
+                <div className="relative mt-2">
+                  <Lock className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
+                  <input required name="password" type="password" className="w-full rounded-xl border border-[#D4AF37]/20 bg-black/40 py-3 pl-11 pr-4 text-sm text-white placeholder:text-zinc-600 focus:border-[#D4AF37]/60 focus:outline-none" placeholder="••••••••" />
                 </div>
+              </div>
 
-                <div>
-                  <label className="text-xs font-semibold uppercase tracking-wide text-[#D4AF37]">Password</label>
-                  <div className="relative mt-2">
-                    <Lock className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
-                    <input required type="password" className="w-full rounded-xl border border-[#D4AF37]/20 bg-black/40 py-3 pl-11 pr-4 text-sm text-white placeholder:text-zinc-600 focus:border-[#D4AF37]/60 focus:outline-none" placeholder="••••••••" />
-                  </div>
-                </div>
+              <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+                <label className="flex items-center gap-2 text-zinc-400">
+                  <input type="checkbox" className="h-4 w-4 rounded border-[#D4AF37]/30 bg-black/40 accent-[#D4AF37]" />
+                  Remember me
+                </label>
+                <Link href="/forgot-password" className="font-medium text-[#D4AF37] hover:text-[#F5D573]">Forgot password?</Link>
+              </div>
 
-                <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
-                  <label className="flex items-center gap-2 text-zinc-400">
-                    <input type="checkbox" className="h-4 w-4 rounded border-[#D4AF37]/30 bg-black/40 accent-[#D4AF37]" />
-                    Remember me
-                  </label>
-                  <a href="#" className="font-medium text-[#D4AF37] hover:text-[#F5D573]">Forgot password?</a>
-                </div>
+              <Button type="submit" disabled={isPending} className="w-full bg-[#D4AF37] py-3 text-base font-semibold text-black hover:bg-[#F5D573] disabled:opacity-60">
+                {isPending ? "Logging In..." : "Log In"}
+              </Button>
 
-                <Button type="submit" className="w-full bg-[#D4AF37] py-3 text-base font-semibold text-black hover:bg-[#F5D573]">
-                  Log In
-                </Button>
-
-                <p className="text-center text-sm text-zinc-400">
-                  Don't have a Voltex Funding account?{" "}
-                  <Link href="/signup" className="font-semibold text-[#D4AF37] hover:text-[#F5D573]">Sign Up</Link>
-                </p>
-              </form>
-            )}
+              <p className="text-center text-sm text-zinc-400">
+                Don't have an account yet?{" "}
+                <Link href="/challenges" className="font-semibold text-[#D4AF37] hover:text-[#F5D573]">Start Challenge</Link>
+              </p>
+            </form>
           </div>
         </div>
       </section>

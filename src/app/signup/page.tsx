@@ -1,13 +1,13 @@
 "use client";
 
-import { useState, Suspense } from "react";
+import { useActionState, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
-import { motion } from "framer-motion";
 import Link from "next/link";
-import { User, Mail, Lock, Gift, Sparkles } from "lucide-react";
+import { User, Mail, Lock, Phone, Globe2, Gift, Sparkles } from "lucide-react";
 import Navbar from "@/components/layout/Navbar";
 import Footer from "@/components/layout/Footer";
 import { Button } from "@/components/ui/button";
+import { signUp } from "@/lib/auth/actions";
 
 function SignupForm() {
   const searchParams = useSearchParams();
@@ -15,7 +15,7 @@ function SignupForm() {
   const [referralCode, setReferralCode] = useState(refFromUrl);
   const [promoCode, setPromoCode] = useState("");
   const [promoChecked, setPromoChecked] = useState(false);
-  const [submitted, setSubmitted] = useState(false);
+  const [state, formAction, isPending] = useActionState(signUp, { error: null });
 
   function handleApplyPromo(e: React.FormEvent) {
     e.preventDefault();
@@ -23,30 +23,26 @@ function SignupForm() {
     setPromoChecked(true);
   }
 
-  function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setSubmitted(true);
-  }
-
   return (
-    <motion.div initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ duration: 0.4 }} className="rounded-3xl border border-[#D4AF37]/20 bg-white/[0.02] p-8 backdrop-blur-xl sm:p-10">
-      {submitted ? (
+    <div className="rounded-3xl border border-[#D4AF37]/20 bg-white/[0.02] p-8 backdrop-blur-xl sm:p-10">
+      {state?.success ? (
         <div className="py-10 text-center">
-          <p className="text-xl font-extrabold text-white">Sign Up Coming Soon</p>
-          <p className="mx-auto mt-3 max-w-sm text-sm leading-6 text-zinc-400">
-            Account creation isn't live yet — we're still building this out. Check back soon, or contact support if you'd like to get started sooner.
-          </p>
-          <Link href="/contact">
-            <Button className="mt-6 bg-[#D4AF37] px-6 py-3 text-sm font-semibold text-black hover:bg-[#F5D573]">Contact Support</Button>
-          </Link>
+          <p className="text-xl font-extrabold text-white">Check Your Email</p>
+          <p className="mx-auto mt-3 max-w-sm text-sm leading-6 text-zinc-400">{state.success}</p>
         </div>
       ) : (
-        <form onSubmit={handleSubmit} className="space-y-5">
+        <form action={formAction} className="space-y-5">
+          {state?.error && (
+            <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+              {state.error}
+            </div>
+          )}
+
           <div>
             <label className="text-xs font-semibold uppercase tracking-wide text-[#D4AF37]">Full Name</label>
             <div className="relative mt-2">
               <User className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
-              <input required type="text" className="w-full rounded-xl border border-[#D4AF37]/20 bg-black/40 py-3 pl-11 pr-4 text-sm text-white placeholder:text-zinc-600 focus:border-[#D4AF37]/60 focus:outline-none" placeholder="Your full name" />
+              <input required name="fullName" type="text" className="w-full rounded-xl border border-[#D4AF37]/20 bg-black/40 py-3 pl-11 pr-4 text-sm text-white placeholder:text-zinc-600 focus:border-[#D4AF37]/60 focus:outline-none" placeholder="Your full name" />
             </div>
           </div>
 
@@ -54,7 +50,24 @@ function SignupForm() {
             <label className="text-xs font-semibold uppercase tracking-wide text-[#D4AF37]">Email</label>
             <div className="relative mt-2">
               <Mail className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
-              <input required type="email" className="w-full rounded-xl border border-[#D4AF37]/20 bg-black/40 py-3 pl-11 pr-4 text-sm text-white placeholder:text-zinc-600 focus:border-[#D4AF37]/60 focus:outline-none" placeholder="you@example.com" />
+              <input required name="email" type="email" className="w-full rounded-xl border border-[#D4AF37]/20 bg-black/40 py-3 pl-11 pr-4 text-sm text-white placeholder:text-zinc-600 focus:border-[#D4AF37]/60 focus:outline-none" placeholder="you@example.com" />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+            <div>
+              <label className="text-xs font-semibold uppercase tracking-wide text-[#D4AF37]">Phone</label>
+              <div className="relative mt-2">
+                <Phone className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
+                <input name="phone" type="tel" className="w-full rounded-xl border border-[#D4AF37]/20 bg-black/40 py-3 pl-11 pr-4 text-sm text-white placeholder:text-zinc-600 focus:border-[#D4AF37]/60 focus:outline-none" placeholder="+234..." />
+              </div>
+            </div>
+            <div>
+              <label className="text-xs font-semibold uppercase tracking-wide text-[#D4AF37]">Country</label>
+              <div className="relative mt-2">
+                <Globe2 className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
+                <input name="country" type="text" className="w-full rounded-xl border border-[#D4AF37]/20 bg-black/40 py-3 pl-11 pr-4 text-sm text-white placeholder:text-zinc-600 focus:border-[#D4AF37]/60 focus:outline-none" placeholder="Nigeria" />
+              </div>
             </div>
           </div>
 
@@ -62,7 +75,7 @@ function SignupForm() {
             <label className="text-xs font-semibold uppercase tracking-wide text-[#D4AF37]">Password</label>
             <div className="relative mt-2">
               <Lock className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
-              <input required type="password" className="w-full rounded-xl border border-[#D4AF37]/20 bg-black/40 py-3 pl-11 pr-4 text-sm text-white placeholder:text-zinc-600 focus:border-[#D4AF37]/60 focus:outline-none" placeholder="Create a password" />
+              <input required name="password" type="password" minLength={8} className="w-full rounded-xl border border-[#D4AF37]/20 bg-black/40 py-3 pl-11 pr-4 text-sm text-white placeholder:text-zinc-600 focus:border-[#D4AF37]/60 focus:outline-none" placeholder="At least 8 characters" />
             </div>
           </div>
 
@@ -108,8 +121,8 @@ function SignupForm() {
             )}
           </div>
 
-          <Button type="submit" className="w-full bg-[#D4AF37] py-3 text-base font-semibold text-black hover:bg-[#F5D573]">
-            Create Account
+          <Button type="submit" disabled={isPending} className="w-full bg-[#D4AF37] py-3 text-base font-semibold text-black hover:bg-[#F5D573] disabled:opacity-60">
+            {isPending ? "Creating Account..." : "Create Account"}
           </Button>
 
           <p className="text-center text-sm text-zinc-400">
@@ -118,7 +131,7 @@ function SignupForm() {
           </p>
         </form>
       )}
-    </motion.div>
+    </div>
   );
 }
 
@@ -130,14 +143,14 @@ export default function SignupPage() {
       <section className="relative overflow-hidden bg-black pb-8 pt-16">
         <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,rgba(212,175,55,.1),transparent_55%)]" />
         <div className="relative mx-auto max-w-[1440px] px-8">
-          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }} className="mx-auto max-w-2xl text-center">
+          <div className="mx-auto max-w-2xl text-center">
             <p className="text-xs font-semibold uppercase tracking-[0.35em] text-[#D4AF37]">SIGN UP</p>
             <h1 className="mt-4 text-4xl font-extrabold leading-tight text-white md:text-5xl">Create Your Trader Account.</h1>
             <p className="mx-auto mt-5 max-w-xl text-base leading-7 text-zinc-400">
               Set up your free Voltex Funding account to track your challenges, manage payouts, and get started when you're ready.
             </p>
-          </motion.div>
-          <motion.div initial={{ scaleX: 0, opacity: 0 }} animate={{ scaleX: 1, opacity: 1 }} transition={{ duration: 0.5, delay: 0.15 }} className="mx-auto mt-8 h-px w-40 origin-center bg-gradient-to-r from-transparent via-[#D4AF37] to-transparent" />
+          </div>
+          <div className="mx-auto mt-8 h-px w-40 bg-gradient-to-r from-transparent via-[#D4AF37] to-transparent" />
         </div>
       </section>
 
