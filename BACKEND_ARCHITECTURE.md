@@ -54,3 +54,18 @@ code (service role key) in Phase 2, once Paystack/MT5/admin actions exist.
 Each service file above defines the TypeScript interfaces/contracts Phase 2
 will implement against, so the actual business logic can be written directly
 into an existing, typed scaffold rather than starting from scratch.
+
+## Phase 3 planning note (added after Phase 2 completion)
+
+When MT5 account provisioning begins, add a new field (e.g. `order_status`
+or `provisioning_status`) to `challenge_purchases`, separate from
+`payment_status`. Purpose: the moment a payment is confirmed (webhook
+sets `payment_status = 'completed'`), this new field should track whether
+the corresponding trading account has actually been provisioned and sent
+to the trader yet — so nothing gets missed between "payment received"
+and "account actually delivered."
+
+Natural place to trigger this: inside the webhook route
+(`src/app/api/webhooks/palmpay/route.ts`), right where notifications are
+currently created on successful payment — that's exactly the moment a
+call to the (not-yet-built) MT5 provisioning service should fire too.
