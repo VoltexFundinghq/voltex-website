@@ -1,41 +1,34 @@
-"use client";
-
 import Link from "next/link";
-import { Button } from "@/components/ui/button";
 import { Percent, Target, ShieldAlert, MonitorSmartphone, Clock } from "lucide-react";
 import Navbar from "@/components/layout/Navbar";
 import Footer from "@/components/layout/Footer";
-
-const challenges = [
-  { size: "N200,000", fee: "N8,900", comingSoon: false },
-  { size: "N300,000", fee: "N13,900", comingSoon: false },
-  { size: "N500,000", fee: "N22,900", comingSoon: false, popular: true },
-  { size: "N700,000", fee: "N27,900", comingSoon: false },
-  { size: "N800,000", fee: "N34,900", comingSoon: false },
-  { size: "N1,000,000", fee: null, comingSoon: true },
-  { size: "N2,000,000", fee: null, comingSoon: true },
-  { size: "N3,000,000", fee: null, comingSoon: true },
-];
+import { Button } from "@/components/ui/button";
+import { CHALLENGE_PRODUCTS, CHALLENGE_RULES } from "@/lib/config/challenges";
+import { initiateChallengeCheckout } from "@/lib/services/purchases/checkout";
+import type { ChallengeProduct } from "@/lib/types/challenge";
 
 const stats = [
-  { icon: Percent, label: "Profit Split", value: "80%" },
-  { icon: Target, label: "Profit Target", value: "10%" },
-  { icon: ShieldAlert, label: "Max Drawdown", value: "20%" },
-  { icon: MonitorSmartphone, label: "Platform", value: "MT5" },
+  { icon: Percent, label: "Profit Split", value: `${CHALLENGE_RULES.profit_split_percent}%` },
+  { icon: Target, label: "Profit Target", value: `${CHALLENGE_RULES.profit_target_percent}%` },
+  { icon: ShieldAlert, label: "Max Drawdown", value: `${CHALLENGE_RULES.max_drawdown_percent}%` },
+  { icon: MonitorSmartphone, label: "Platform", value: CHALLENGE_RULES.platform },
 ];
 
-function ChallengeCard({ challenge }: { challenge: (typeof challenges)[number] }) {
+function ChallengeCard({ challenge }: { challenge: ChallengeProduct }) {
+  const comingSoon = challenge.status === "coming_soon" || challenge.challenge_fee === null;
+  const buyAction = initiateChallengeCheckout.bind(null, challenge.id);
+
   return (
-    <div className={`group relative flex h-full flex-col rounded-3xl border p-5 backdrop-blur-xl transition-all duration-300 hover:-translate-y-2 sm:p-6 ${challenge.popular ? "border-[#D4AF37]/50 bg-[#D4AF37]/[0.05] shadow-[0_0_50px_rgba(212,175,55,0.15)] hover:border-[#D4AF37]/70 hover:shadow-[0_25px_70px_rgba(212,175,55,0.25)]" : "border-[#D4AF37]/15 bg-white/[0.02] hover:border-[#D4AF37]/50 hover:bg-white/[0.04] hover:shadow-[0_20px_60px_rgba(212,175,55,0.15)]"} ${challenge.comingSoon ? "opacity-80" : ""}`}>
-      {challenge.popular && (
+    <div className={`group relative flex h-full flex-col rounded-3xl border p-5 backdrop-blur-xl transition-all duration-300 hover:-translate-y-2 sm:p-6 ${challenge.is_popular ? "border-[#D4AF37]/50 bg-[#D4AF37]/[0.05] shadow-[0_0_50px_rgba(212,175,55,0.15)] hover:border-[#D4AF37]/70 hover:shadow-[0_25px_70px_rgba(212,175,55,0.25)]" : "border-[#D4AF37]/15 bg-white/[0.02] hover:border-[#D4AF37]/50 hover:bg-white/[0.04] hover:shadow-[0_20px_60px_rgba(212,175,55,0.15)]"} ${comingSoon ? "opacity-80" : ""}`}>
+      {challenge.is_popular && (
         <div className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-[#D4AF37] px-4 py-1 text-[11px] font-bold tracking-wide text-black shadow-lg">
           MOST POPULAR
         </div>
       )}
       <p className="text-xs text-zinc-500">Account Size</p>
-      <p className="mt-1 text-2xl font-bold text-white">{challenge.size}</p>
+      <p className="mt-1 text-2xl font-bold text-white">N{challenge.account_size.toLocaleString()}</p>
       <div className="my-4 h-px bg-[#D4AF37]/10 sm:my-5" />
-      {challenge.comingSoon ? (
+      {comingSoon ? (
         <div className="flex items-center justify-center gap-2 rounded-xl border border-[#D4AF37]/15 bg-white/[0.02] px-4 py-4 text-sm font-semibold text-zinc-400">
           <Clock className="h-4 w-4 text-[#D4AF37]" />
           Coming Soon
@@ -43,7 +36,7 @@ function ChallengeCard({ challenge }: { challenge: (typeof challenges)[number] }
       ) : (
         <div>
           <p className="text-xs text-zinc-500">Challenge Fee</p>
-          <p className="mt-1 text-2xl font-extrabold text-[#D4AF37] sm:text-3xl">{challenge.fee}</p>
+          <p className="mt-1 text-2xl font-extrabold text-[#D4AF37] sm:text-3xl">N{challenge.challenge_fee!.toLocaleString()}</p>
         </div>
       )}
       <div className="my-4 h-px bg-[#D4AF37]/10 sm:my-5" />
@@ -58,14 +51,14 @@ function ChallengeCard({ challenge }: { challenge: (typeof challenges)[number] }
           </div>
         ))}
       </div>
-      {challenge.comingSoon ? (
+      {comingSoon ? (
         <button disabled className="mt-6 w-full cursor-not-allowed rounded-xl border border-white/10 bg-white/[0.02] py-3 text-sm font-semibold text-zinc-500">
           Coming Soon
         </button>
       ) : (
-        <Link href="/challenges">
-          <Button className="mt-6 w-full bg-[#D4AF37] py-3 text-base font-semibold text-black hover:bg-[#F5D573]">Buy Challenge</Button>
-        </Link>
+        <form action={buyAction}>
+          <Button type="submit" className="mt-6 w-full bg-[#D4AF37] py-3 text-base font-semibold text-black hover:bg-[#F5D573]">Buy Challenge</Button>
+        </form>
       )}
     </div>
   );
@@ -93,15 +86,15 @@ export default function ChallengesPage() {
         <div className="relative mx-auto max-w-[1440px] px-5 sm:px-8">
 
           <div className="flex gap-4 overflow-x-auto pb-2 snap-x snap-mandatory -mx-5 px-5 sm:hidden [&::-webkit-scrollbar]:hidden" style={{ scrollbarWidth: "none" }}>
-            {challenges.map((challenge) => (
-              <div key={challenge.size} className="w-[82%] flex-shrink-0 snap-center">
+            {CHALLENGE_PRODUCTS.map((challenge) => (
+              <div key={challenge.id} className="w-[82%] flex-shrink-0 snap-center">
                 <ChallengeCard challenge={challenge} />
               </div>
             ))}
           </div>
 
           <div className="hidden sm:grid sm:grid-cols-2 sm:gap-6 lg:grid-cols-4">
-            {challenges.map((challenge) => (<ChallengeCard key={challenge.size} challenge={challenge} />))}
+            {CHALLENGE_PRODUCTS.map((challenge) => (<ChallengeCard key={challenge.id} challenge={challenge} />))}
           </div>
         </div>
       </section>

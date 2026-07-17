@@ -1,12 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
-import { User, Menu, X } from "lucide-react";
+import { User, Menu, X, LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { createClient } from "@/lib/supabase/client";
+import { signOutAction } from "@/lib/auth/actions";
 
 const navLinks = [
   { label: "Home", href: "/" },
@@ -19,6 +21,39 @@ const navLinks = [
 export default function Navbar() {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
+  const [loggedIn, setLoggedIn] = useState(false);
+  const [displayHandle, setDisplayHandle] = useState<string | null>(null);
+
+  useEffect(() => {
+    const supabase = createClient();
+
+    async function loadUser() {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        setLoggedIn(false);
+        setDisplayHandle(null);
+        return;
+      }
+      setLoggedIn(true);
+      const { data: profile } = await supabase.from("users").select("username").eq("id", user.id).single();
+      setDisplayHandle(profile?.username || user.email?.split("@")[0] || "Trader");
+    }
+
+    loadUser();
+
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) {
+        setLoggedIn(true);
+        supabase.from("users").select("username").eq("id", session.user.id).single()
+          .then(({ data }) => setDisplayHandle(data?.username || session.user.email?.split("@")[0] || "Trader"));
+      } else {
+        setLoggedIn(false);
+        setDisplayHandle(null);
+      }
+    });
+
+    return () => listener.subscription.unsubscribe();
+  }, []);
 
   return (
     <header className="w-full pt-2">
@@ -41,10 +76,22 @@ export default function Navbar() {
           </nav>
 
           <div className="hidden items-center gap-5 lg:flex">
-            <Link href="/login" className="flex items-center gap-2 rounded-xl px-4 py-2 text-lg font-medium text-white transition-all duration-300 hover:bg-[#D4AF37]/10 hover:text-[#D4AF37]">
-              <User size={20} />
-              Login
-            </Link>
+            {loggedIn ? (
+              <>
+                <span className="max-w-[160px] truncate text-base text-zinc-400">{displayHandle}</span>
+                <form action={signOutAction}>
+                  <button type="submit" className="flex items-center gap-2 rounded-xl px-4 py-2 text-lg font-medium text-white transition-all duration-300 hover:bg-[#D4AF37]/10 hover:text-[#D4AF37]">
+                    <LogOut size={20} />
+                    Log Out
+                  </button>
+                </form>
+              </>
+            ) : (
+              <Link href="/login" className="flex items-center gap-2 rounded-xl px-4 py-2 text-lg font-medium text-white transition-all duration-300 hover:bg-[#D4AF37]/10 hover:text-[#D4AF37]">
+                <User size={20} />
+                Login
+              </Link>
+            )}
             <Link href="/challenges">
               <Button className="h-12 rounded-xl bg-[#D4AF37] px-7 text-lg font-semibold text-black hover:bg-[#F5D573]">Start Challenge →</Button>
             </Link>
@@ -68,10 +115,22 @@ export default function Navbar() {
                   );
                 })}
                 <div className="mt-3 flex flex-col gap-3 border-t border-[#D4AF37]/10 pt-4">
-                  <Link href="/login" onClick={() => setOpen(false)} className="flex items-center justify-center gap-2 rounded-xl border border-[#D4AF37]/30 px-4 py-3 text-base font-medium text-white">
-                    <User size={18} />
-                    Login
-                  </Link>
+                  {loggedIn ? (
+                    <>
+                      <p className="truncate px-1 text-sm text-zinc-400">{displayHandle}</p>
+                      <form action={signOutAction}>
+                        <button type="submit" className="flex w-full items-center justify-center gap-2 rounded-xl border border-[#D4AF37]/30 px-4 py-3 text-base font-medium text-white">
+                          <LogOut size={18} />
+                          Log Out
+                        </button>
+                      </form>
+                    </>
+                  ) : (
+                    <Link href="/login" onClick={() => setOpen(false)} className="flex items-center justify-center gap-2 rounded-xl border border-[#D4AF37]/30 px-4 py-3 text-base font-medium text-white">
+                      <User size={18} />
+                      Login
+                    </Link>
+                  )}
                   <Link href="/challenges" onClick={() => setOpen(false)}>
                     <Button className="w-full rounded-xl bg-[#D4AF37] py-3 text-base font-semibold text-black hover:bg-[#F5D573]">Start Challenge →</Button>
                   </Link>

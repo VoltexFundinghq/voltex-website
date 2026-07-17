@@ -2,7 +2,7 @@
 
 import { useActionState } from "react";
 import Link from "next/link";
-import { Mail, Lock } from "lucide-react";
+import { AtSign, Lock } from "lucide-react";
 import Navbar from "@/components/layout/Navbar";
 import Footer from "@/components/layout/Footer";
 import { Button } from "@/components/ui/button";
@@ -41,10 +41,10 @@ export default function LoginPage() {
               )}
 
               <div>
-                <label className="text-xs font-semibold uppercase tracking-wide text-[#D4AF37]">Email</label>
+                <label className="text-xs font-semibold uppercase tracking-wide text-[#D4AF37]">Username or Email</label>
                 <div className="relative mt-2">
-                  <Mail className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
-                  <input required name="email" type="email" className="w-full rounded-xl border border-[#D4AF37]/20 bg-black/40 py-3 pl-11 pr-4 text-sm text-white placeholder:text-zinc-600 focus:border-[#D4AF37]/60 focus:outline-none" placeholder="you@example.com" />
+                  <AtSign className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
+                  <input required name="identifier" type="text" className="w-full rounded-xl border border-[#D4AF37]/20 bg-black/40 py-3 pl-11 pr-4 text-sm text-white placeholder:text-zinc-600 focus:border-[#D4AF37]/60 focus:outline-none" placeholder="username or you@example.com" />
                 </div>
               </div>
 
