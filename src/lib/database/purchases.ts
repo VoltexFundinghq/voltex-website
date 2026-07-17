@@ -2,11 +2,6 @@ import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import type { ChallengePurchase, PaymentStatus } from "@/lib/types/database";
 
-/**
- * Fetches all challenge purchases belonging to the currently logged-in
- * user, most recent first. RLS ensures this can never leak another
- * user's purchases, regardless of what's passed in.
- */
 export async function getPurchases(): Promise<ChallengePurchase[]> {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -22,9 +17,6 @@ export async function getPurchases(): Promise<ChallengePurchase[]> {
   return data;
 }
 
-/**
- * Fetches a single purchase by its id, scoped to the current user via RLS.
- */
 export async function getPurchaseById(purchaseId: string): Promise<ChallengePurchase | null> {
   const supabase = await createClient();
   const { data, error } = await supabase
@@ -37,15 +29,10 @@ export async function getPurchaseById(purchaseId: string): Promise<ChallengePurc
   return data;
 }
 
-/**
- * Creates a new purchase record, always starting as "pending" — the
- * moment a user begins checkout, before we know whether they'll
- * actually complete payment. Gives every checkout attempt a traceable
- * record, even abandoned ones.
- */
 export async function createPurchase(params: {
   userId: string;
   challengeSize: string;
+  challengeConfigId: string;
   pricePaid: number;
   paymentReference: string;
 }): Promise<ChallengePurchase | null> {
@@ -56,6 +43,7 @@ export async function createPurchase(params: {
     .insert({
       user_id: params.userId,
       challenge_size: params.challengeSize,
+      challenge_config_id: params.challengeConfigId,
       price_paid: params.pricePaid,
       payment_reference: params.paymentReference,
       payment_status: "pending",
@@ -70,11 +58,6 @@ export async function createPurchase(params: {
   return data;
 }
 
-/**
- * Looks up a purchase by PalmPay's orderId (our payment_reference).
- * Uses the SERVICE ROLE client since this runs from the webhook,
- * where there's no logged-in user for RLS to scope against.
- */
 export async function getPurchaseByReference(paymentReference: string): Promise<ChallengePurchase | null> {
   const serviceClient = createServiceClient();
   const { data, error } = await serviceClient
@@ -87,10 +70,6 @@ export async function getPurchaseByReference(paymentReference: string): Promise<
   return data;
 }
 
-/**
- * Updates a purchase's status via the service role client — used by the
- * webhook once PalmPay confirms the real outcome of a payment.
- */
 export async function updatePurchaseStatus(purchaseId: string, status: PaymentStatus): Promise<boolean> {
   const serviceClient = createServiceClient();
   const { error } = await serviceClient

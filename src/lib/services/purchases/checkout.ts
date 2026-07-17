@@ -8,12 +8,6 @@ import { getChallengeById, nairaToKobo } from "@/lib/config/challenges";
 import { createPurchase, updatePurchaseStatus } from "@/lib/database/purchases";
 import { createPalmPayOrder } from "@/lib/services/palmpay/client";
 
-/**
- * Shared core: creates the purchase record and PalmPay order for an
- * already-identified user, returning the real checkoutUrl. Does NOT
- * redirect itself — callers must do that outside any try/catch, since
- * redirect() throws internally and would otherwise be swallowed.
- */
 export async function createCheckoutForUser(params: {
   userId: string;
   userEmail: string | null;
@@ -31,6 +25,7 @@ export async function createCheckoutForUser(params: {
   const purchase = await createPurchase({
     userId: params.userId,
     challengeSize: challenge.challenge_name,
+    challengeConfigId: params.challengeId,
     pricePaid: challenge.challenge_fee,
     paymentReference: orderId,
   });

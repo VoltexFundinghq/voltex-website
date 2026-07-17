@@ -17,7 +17,7 @@ export type AuthResult = {
 
 export async function signUp(prevState: AuthResult, formData: FormData): Promise<AuthResult> {
   const fullName = formData.get("fullName") as string;
-  const username = formData.get("username") as string;
+  const usernameRaw = formData.get("username") as string;
   const email = formData.get("email") as string;
   const phone = formData.get("phone") as string;
   const country = formData.get("country") as string;
@@ -25,7 +25,7 @@ export async function signUp(prevState: AuthResult, formData: FormData): Promise
   const confirmPassword = formData.get("confirmPassword") as string;
   const challengeId = (formData.get("challengeId") as string) || undefined;
 
-  if (!fullName || !username || !email || !password) {
+  if (!fullName || !usernameRaw || !email || !password) {
     return { error: "Full name, username, email, and password are required." };
   }
   if (password.length < 8) {
@@ -34,6 +34,8 @@ export async function signUp(prevState: AuthResult, formData: FormData): Promise
   if (password !== confirmPassword) {
     return { error: "Passwords do not match." };
   }
+
+  const username = usernameRaw.trim().toLowerCase();
 
   const supabase = await createClient();
 
@@ -107,11 +109,6 @@ export async function verifySignupCode(prevState: AuthResult, formData: FormData
   redirect("/");
 }
 
-/**
- * Resends the signup confirmation email (new code, same 60s rate limit
- * we set in Supabase's dashboard). Returns a friendly message on the
- * common "too soon" case rather than a raw error.
- */
 export async function resendSignupCode(prevState: AuthResult, formData: FormData): Promise<AuthResult> {
   const email = formData.get("email") as string;
   const challengeId = (formData.get("challengeId") as string) || undefined;
@@ -136,13 +133,14 @@ export async function resendSignupCode(prevState: AuthResult, formData: FormData
 }
 
 export async function signIn(prevState: AuthResult, formData: FormData): Promise<AuthResult> {
-  const identifier = (formData.get("identifier") as string)?.trim();
+  const identifierRaw = (formData.get("identifier") as string)?.trim();
   const password = formData.get("password") as string;
 
-  if (!identifier || !password) {
+  if (!identifierRaw || !password) {
     return { error: "Username/email and password are required." };
   }
 
+  const identifier = identifierRaw.toLowerCase();
   let email = identifier;
 
   if (!identifier.includes("@")) {

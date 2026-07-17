@@ -3,11 +3,8 @@ import { verifyCallbackSignature } from "@/lib/services/palmpay/signing";
 import { mapPalmPayStatus } from "@/lib/services/palmpay/status-mapping";
 import { createServiceClient } from "@/lib/supabase/service";
 import { createNotification } from "@/lib/database/notifications";
+import { provisionChallengeAccount } from "@/lib/services/provisioning/allocate";
 
-/**
- * PalmPay requires the literal plain-text string "success" in response —
- * not JSON, nothing extra — or it retries the callback up to 6 times.
- */
 export async function POST(request: Request) {
   const body = await request.json();
   const { sign, ...rest } = body;
@@ -46,13 +43,6 @@ export async function POST(request: Request) {
     return new NextResponse("success", { status: 200 });
   }
 
-  /**
-   * Atomic, race-condition-safe update: only succeeds if this row isn't
-   * already "completed". If two webhook deliveries for the same order
-   * arrive almost simultaneously, only one actually performs this update —
-   * the other gets zero affected rows back and safely no-ops, instead of
-   * both processing the same payment twice.
-   */
   const { data: updatedRows, error: updateError } = await serviceClient
     .from("challenge_purchases")
     .update({ payment_status: newStatus })
@@ -67,8 +57,6 @@ export async function POST(request: Request) {
 
   const didUpdate = updatedRows && updatedRows.length > 0;
 
-  // Only the request that actually performed the transition sends
-  // notifications — prevents duplicates under a race.
   if (didUpdate && newStatus === "completed") {
     await createNotification({
       userId: purchase.user_id,
@@ -80,6 +68,26 @@ export async function POST(request: Request) {
       title: "Purchase Confirmed",
       message: `Your ${purchase.challenge_size} purchase is confirmed. Your challenge account will be set up shortly.`,
     });
+
+    if (purchase.challenge_config_id) {
+      const { data: userRow } = await serviceClient
+        .from("users")
+        .select("email")
+        .eq("id", purchase.user_id)
+        .single();
+
+      try {
+        await provisionChallengeAccount({
+          userId: purchase.user_id,
+          userEmail: userRow?.email ?? "",
+          challengeConfigId: purchase.challenge_config_id,
+        });
+      } catch (err) {
+        console.error("PalmPay webhook: provisioning failed", err);
+      }
+    } else {
+      console.warn(`PalmPay webhook: purchase ${purchase.id} has no challenge_config_id — skipping provisioning (likely an older test purchase)`);
+    }
   }
 
   return new NextResponse("success", { status: 200 });

@@ -2,7 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import type { TradingAccount } from "@/lib/types/database";
 
 /**
- * Fetches all trading accounts belonging to the currently logged-in user.
+ * Fetches all trading accounts assigned to the currently logged-in user.
  */
 export async function getMyTradingAccounts(): Promise<TradingAccount[]> {
   const supabase = await createClient();
@@ -12,7 +12,7 @@ export async function getMyTradingAccounts(): Promise<TradingAccount[]> {
   const { data, error } = await supabase
     .from("trading_accounts")
     .select("*")
-    .eq("user_id", user.id)
+    .eq("assigned_to", user.id)
     .order("created_at", { ascending: false });
 
   if (error || !data) return [];
