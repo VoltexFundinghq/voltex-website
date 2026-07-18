@@ -69,3 +69,37 @@ Natural place to trigger this: inside the webhook route
 (`src/app/api/webhooks/palmpay/route.ts`), right where notifications are
 currently created on successful payment — that's exactly the moment a
 call to the (not-yet-built) MT5 provisioning service should fire too.
+
+## Account lifecycle decisions (added during Phase 3 recycling discussion)
+
+**MT5 trade history cannot be cleared** — confirmed as a deliberate,
+platform-wide MetaQuotes design choice, not an Exness-specific
+limitation. This means the "reset and reuse the same account for a
+different customer" model does NOT work — old history remains
+permanently visible to whoever logs in next, even after a balance
+reset. (The default History tab view only shows a recent window,
+which softens casual visibility, but the full history is always
+retrievable via "All History".)
+
+**Decided model going forward:**
+- Phase 1 → Phase 2, same trader: KEEP the same trading_account_id.
+  No history concern — it's the same person's own trading activity.
+- Evaluation → Funded: trader receives a genuinely NEW account.
+  This is the one real "handoff" moment requiring fresh inventory.
+- Funded account persists long-term: the SAME funded account is
+  reused across all of that trader's subsequent payout cycles — not
+  swapped out per payout.
+- An evaluation account that a trader FAILS on is retired permanently
+  (`expired` status) — never reassigned to a different person.
+  Replenishing stock means creating genuinely new Exness demo
+  accounts and importing them via scripts/import-trading-accounts.js.
+
+**Scaling accounts**: multiple Exness Personal Accounts can host
+inventory in parallel as the business grows — trading_accounts
+already treats this as one flat pool regardless of which PA an
+account originates from. No schema change needed for this.
+
+**Natural trigger point**: this logic belongs inside the Rule Engine,
+specifically the moment it detects a trader has passed Phase 1
+(keep same account, update user_challenges.status) or passed Phase 2
+(provision a new funded account, update status to 'funded').
