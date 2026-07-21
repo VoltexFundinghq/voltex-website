@@ -103,3 +103,26 @@ account originates from. No schema change needed for this.
 specifically the moment it detects a trader has passed Phase 1
 (keep same account, update user_challenges.status) or passed Phase 2
 (provision a new funded account, update status to 'funded').
+
+## Rules that cannot be automatically detected (added during Rule Engine build)
+
+Four of Voltex Funding's published Prohibited Trading Practices cannot
+be enforced by code with what currently exists — these remain real,
+enforceable policy, just not something the Rule Engine can catch on
+its own. If ever suspected, action requires manual investigation:
+
+- **Arbitrage / Latency Exploitation** — would need a reference price
+  feed to compare against broker quotes at the exact moment a trade
+  fires. Closed-trade records alone can't reveal this.
+- **Platform or Execution Abuse** — too broad a category to translate
+  into a concrete, checkable signal without a much more specific
+  definition of what qualifies.
+- **Account Sharing** — would need login IP/device fingerprinting data
+  we don't collect, and MT5 doesn't expose "who's at the keyboard" by
+  design.
+
+Copy Trading and Reverse Hedging ARE automatically detected (see
+src/lib/services/rule-engine/detect-correlations.ts), but deliberately
+flag for manual admin review rather than auto-failing an account —
+false positives between unrelated traders on heavily-traded symbols
+(EURUSD, XAUUSD) are a real, expected risk with this kind of detection.
