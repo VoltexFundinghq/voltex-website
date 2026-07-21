@@ -9,7 +9,7 @@ const supabase = createClient(
 async function checkCountdown() {
   const { data: accounts, error } = await supabase
     .from('trading_accounts')
-    .select('login, account_size, last_known_activity_at')
+    .select('login, account_size, pa_label, last_known_activity_at')
     .eq('status', 'resetting')
     .not('last_known_activity_at', 'is', null)
     .order('last_known_activity_at', { ascending: true });
@@ -35,13 +35,12 @@ async function checkCountdown() {
       ? '⚠️  likely already deleted by Exness'
       : `~${daysRemaining} day(s) remaining (estimate)`;
 
-    console.log(`  Login ${acc.login} (${acc.account_size}) — ${status}`);
+    console.log(`  Login ${acc.login} (${acc.account_size}, ${acc.pa_label || 'UNKNOWN PA — fix this record'}) — ${status}`);
   }
 
   console.log('\nNote: these are estimates based on our own records, not a live');
   console.log('sync with Exness. Logging into a retired account does NOT reset');
   console.log('the real clock — only an actual trade being placed or closed does.');
-  console.log('The main risk is a trader attempting to keep trading after failure.');
 }
 
 checkCountdown().catch((err) => {

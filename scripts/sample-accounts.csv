@@ -1,7 +1,3 @@
-
-login,password,investor_password,server,broker,account_size,currency
-
-436886835,Hope6517!,InvestorPass45!,Exness-MT5Trial9,Exness,300000,NGN
-
-436886929,Hope6517!,InvestorPass01!,Exness-MT5Trial9,Exness,200000,NGN
-
+login,password,investor_password,server,broker,account_size,currency,pa_label
+12345678,MasterPass123!,InvestorPass456!,Exness-MT5Trial9,Exness,300000,NGN,Founder-PA1
+12345679,MasterPass789!,InvestorPass012!,Exness-MT5Trial9,Exness,500000,NGN,Cofounder-PA1

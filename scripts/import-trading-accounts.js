@@ -22,10 +22,10 @@ async function importAccounts(csvPath) {
   let failCount = 0;
 
   for (const [index, row] of records.entries()) {
-    const { login, password, investor_password, server, broker, account_size, currency } = row;
+    const { login, password, investor_password, server, broker, account_size, currency, pa_label } = row;
 
-    if (!login || !password || !investor_password || !server || !broker || !account_size) {
-      console.error(`Row ${index + 1}: SKIPPED — missing a required field. Row data:`, row);
+    if (!login || !password || !investor_password || !server || !broker || !account_size || !pa_label) {
+      console.error(`Row ${index + 1}: SKIPPED — missing a required field (including pa_label). Row data:`, row);
       failCount++;
       continue;
     }
@@ -45,6 +45,7 @@ async function importAccounts(csvPath) {
       broker: String(broker),
       account_size: parsedSize,
       currency: currency ? String(currency) : 'NGN',
+      pa_label: String(pa_label),
       status: 'available',
     });
 
@@ -52,7 +53,7 @@ async function importAccounts(csvPath) {
       console.error(`Row ${index + 1} (login ${login}): FAILED —`, error.message);
       failCount++;
     } else {
-      console.log(`Row ${index + 1} (login ${login}): imported successfully`);
+      console.log(`Row ${index + 1} (login ${login}, ${pa_label}): imported successfully`);
       successCount++;
     }
   }

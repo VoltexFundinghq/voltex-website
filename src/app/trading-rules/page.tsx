@@ -1,5 +1,4 @@
 "use client";
-
 import { useEffect, useState } from "react";
 import { motion, animate, AnimatePresence } from "framer-motion";
 import Link from "next/link";
@@ -7,26 +6,23 @@ import { ShieldCheck, Clock3, CalendarClock, CheckCircle2, Plus, Minus, XCircle 
 import Navbar from "@/components/layout/Navbar";
 import Footer from "@/components/layout/Footer";
 import { Button } from "@/components/ui/button";
-
 const coreRules = [
   { value: 20, suffix: "%", title: "Balance-Based Trailing Drawdown", description: "Your maximum drawdown trails only on your highest CLOSED account balance — never your floating, unrealized profit. Each time you close a trade at a new highest balance, your limit recalculates upward from that point; if your balance later falls, the limit stays fixed at your last highest closed balance.", bullets: ["Based on your highest closed balance", "Floating profit never moves it", "Recalculates upward with every new high"], icon: ShieldCheck, featured: true },
   { value: 3, suffix: " Min", title: "Minimum Hold Time", description: "Every position must remain open for at least three minutes to encourage genuine trading and prevent latency arbitrage.", bullets: ["Prevents latency abuse", "Encourages genuine execution", "Applies to every trade"], icon: Clock3, featured: false },
   { value: 5, suffix: " Days", title: "Activity Requirement", description: "Place at least one trade every five calendar days to keep your challenge active.", bullets: ["Stay active", "Simple requirement", "Fair capital allocation"], icon: CalendarClock, featured: false },
 ];
-
 const faqItems = [
-  { q: "Profit Target", a: "You need to grow your account balance by 10% in each phase — Phase 1 and Phase 2 — to pass your evaluation.", bullets: ["10% target in Phase 1", "10% target in Phase 2", "Same rules apply in both phases"], example: "On a N500,000 account, you need to reach N550,000 to complete each phase." },
+  { q: "Profit Target", a: "You need to grow your account balance by 10% in each phase — Phase 1 and Phase 2 — to pass your evaluation. You trade on the same account for both phases: once you pass Phase 1, your balance simply resets to your starting amount for Phase 2, so your full trading history stays visible in one place the entire way through.", bullets: ["10% target in Phase 1", "10% target in Phase 2", "Same rules apply in both phases", "Same account carries you through both phases — no new login to learn, no history lost"], example: "On a N500,000 account, you need to reach N550,000 to complete each phase." },
   { q: "Maximum Drawdown", a: "This is the only overall risk limit on your account — set at 20%, calculated using our Balance-Based Trailing Drawdown model rather than a fixed, unmoving number.", bullets: ["Set at 20% of your highest closed balance", "Recalculates upward as your balance grows", "This is your only overall limit — there is no separate daily drawdown rule"] },
   { q: "Minimum Trading Days", a: "There's no minimum number of days you must trade.", bullets: ["No minimum required", "Just stay active every 5 days — see the Activity Requirement card above"] },
   { q: "No Time Limits", a: "You can take as long as you like to pass your evaluation.", bullets: ["No maximum time limit", "Applies to both phases", "Just remember the 5-day activity rule"] },
-  { q: "Payout Schedule", a: "Payouts are processed within 24 hours once approved, with clear eligibility rules and caps that scale as your account grows.", bullets: ["A payout becomes eligible once your profit reaches 10% of your account's starting balance", "Your first payout is capped at 10% of your account's starting balance", "Every payout after that is capped at 50% of your account's starting balance", "Profit above the applicable cap is forfeited, not carried over, before your 80% split is calculated", "Approved payouts are completed within 24 hours", "A 72-hour cooldown applies after each completed payout before you can request the next one"], example: "On a N500,000 account, your first eligible payout is capped at N50,000. If you've earned N80,000, the N30,000 above the cap is removed before your 80% split is calculated on the remaining N50,000." },
+  { q: "Payout Schedule", a: "Payouts are processed within 24 hours once approved, with clear eligibility rules and caps that scale as your account grows. Your funded account stays with you long-term — the same account is used for every payout cycle going forward.", bullets: ["A payout becomes eligible once your profit reaches 10% of your account's starting balance", "Your first payout is capped at 10% of your account's starting balance", "Every payout after that is capped at 50% of your account's starting balance", "Profit above the applicable cap is forfeited, not carried over, before your 80% split is calculated", "Approved payouts are completed within 24 hours", "A 72-hour cooldown applies after each completed payout before you can request the next one", "Your funded account is yours to keep — it isn't replaced after each payout"], example: "On a N500,000 account, your first eligible payout is capped at N50,000. If you've earned N80,000, the N30,000 above the cap is removed before your 80% split is calculated on the remaining N50,000." },
   { q: "News Trading", a: "Trading around high-impact news events is allowed. The only requirement is a short holding period for any trade opened right before a release.", bullets: ["News trading is permitted, with no restriction on when you can enter a trade", "If you open a trade within 4 minutes before a high-impact release, that trade must stay open for at least 4 minutes after the release", "This prevents entering right before a spike and closing the instant it hits, rather than genuinely trading the move"] },
   { q: "Weekend Holding", a: "Weekend trading is available on BTC and ETH, since these markets remain open on Saturdays and Sundays — but no position may be left open across the weekend on any instrument.", bullets: ["Only BTC and ETH can be traded over the weekend", "No position may be held open across the weekend, on any instrument", "Exists to protect you and Voltex Funding from sharp weekend price gaps", "First occurrence: a warning. Second occurrence: a rule breach"] },
   { q: "Expert Advisors (EA)", a: "Yes, you're allowed to use Expert Advisors.", bullets: ["Must follow all trading rules", "Can't be used to exploit latency or bypass drawdown rules"] },
   { q: "Copy Trading", a: "Copy trading is allowed between multiple accounts you personally own, but not between accounts belonging to two different traders.", bullets: ["Allowed across your own multiple accounts", "Not allowed between two different traders' accounts", "Copying between different users is treated as a direct rule breach"] },
   { q: "Prohibited Trading Practices", a: "A few practices are never allowed on any Voltex Funding account:", bullets: ["Arbitrage, including latency arbitrage", "Latency exploitation of any kind", "Platform or execution abuse", "Account sharing or trading for someone else", "Reverse hedging across multiple accounts"] },
 ];
-
 function Counter({ to, suffix }: { to: number; suffix: string }) {
   const [display, setDisplay] = useState(0);
   useEffect(() => {
@@ -35,7 +31,6 @@ function Counter({ to, suffix }: { to: number; suffix: string }) {
   }, [to]);
   return (<span>{display}{suffix}</span>);
 }
-
 function handleCardMouseMove(e: React.MouseEvent<HTMLDivElement>) {
   const rect = e.currentTarget.getBoundingClientRect();
   const x = ((e.clientX - rect.left) / rect.width) * 100;
@@ -43,7 +38,6 @@ function handleCardMouseMove(e: React.MouseEvent<HTMLDivElement>) {
   e.currentTarget.style.setProperty("--mx", `${x}%`);
   e.currentTarget.style.setProperty("--my", `${y}%`);
 }
-
 function RuleCard({ rule }: { rule: (typeof coreRules)[number] }) {
   const Icon = rule.icon;
   return (
@@ -74,14 +68,11 @@ function RuleCard({ rule }: { rule: (typeof coreRules)[number] }) {
     </motion.div>
   );
 }
-
 export default function TradingRulesPage() {
   const [openIndex, setOpenIndex] = useState<number | null>(null);
-
   return (
     <main className="min-h-screen bg-black text-white">
       <Navbar />
-
       <section className="relative overflow-hidden bg-black pb-8 pt-12 sm:pt-16">
         <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,rgba(212,175,55,.1),transparent_55%)]" />
         <div className="relative mx-auto max-w-[1440px] px-5 sm:px-8">
@@ -93,11 +84,9 @@ export default function TradingRulesPage() {
           <div className="mx-auto mt-8 h-px w-40 bg-gradient-to-r from-transparent via-[#D4AF37] to-transparent" />
         </div>
       </section>
-
       <section className="relative overflow-hidden bg-black pt-8 pb-16 sm:pb-20">
         <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,rgba(212,175,55,.08),transparent_55%),radial-gradient(circle_at_10%_90%,rgba(212,175,55,.05),transparent_45%)]" />
         <div className="relative mx-auto max-w-7xl px-5 sm:px-6">
-
           <div className="flex gap-5 overflow-x-auto pb-2 snap-x snap-mandatory -mx-5 px-5 lg:hidden [&::-webkit-scrollbar]:hidden" style={{ scrollbarWidth: "none" }}>
             {coreRules.map((rule) => (
               <div key={rule.title} className="w-[86%] flex-shrink-0 snap-center sm:w-[420px]">
@@ -105,13 +94,11 @@ export default function TradingRulesPage() {
               </div>
             ))}
           </div>
-
           <div className="hidden gap-6 lg:grid lg:grid-cols-3">
             {coreRules.map((rule) => (<RuleCard key={rule.title} rule={rule} />))}
           </div>
         </div>
       </section>
-
       <section className="relative overflow-hidden bg-black py-12 sm:py-16">
         <div className="relative mx-auto max-w-[900px] px-5 sm:px-8">
           <h2 className="text-center text-2xl font-extrabold text-white sm:text-3xl">Trading Rules FAQ</h2>
@@ -155,7 +142,6 @@ export default function TradingRulesPage() {
           </div>
         </div>
       </section>
-
       <section className="relative overflow-hidden bg-black py-16 sm:py-20">
         <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_30%,rgba(212,175,55,.1),transparent_55%)]" />
         <div className="relative mx-auto max-w-4xl px-5 sm:px-8">
@@ -172,7 +158,6 @@ export default function TradingRulesPage() {
           </div>
         </div>
       </section>
-
       <Footer />
     </main>
   );
