@@ -15,15 +15,15 @@ export default function CoreRulesDetailed() {
           </div>
           <h2 className="mt-6 text-2xl font-extrabold text-white md:text-3xl">Balance-Based Trailing Drawdown</h2>
           <div className="mt-5 space-y-4">
-            <p className="text-base leading-7 text-zinc-300">Your maximum drawdown trails your highest CLOSED account balance — not your floating, unrealized equity.</p>
-            <p className="text-base leading-7 text-zinc-300">Every time you close a trade that pushes your account to a new highest closed balance, your drawdown threshold recalculates upward from that new balance.</p>
-            <p className="text-base leading-7 text-zinc-300">Floating profit on open trades does not move your drawdown line. Only a closed trade that sets a new highest balance updates the threshold.</p>
-            <p className="text-base leading-7 text-zinc-300">If your balance falls after that point, your drawdown floor stays fixed at the level set by your last highest closed balance — it does not trail back downward with your balance.</p>
+            <p className="text-base leading-7 text-zinc-300">Your maximum drawdown floor is set 20% below your highest CLOSED account balance.</p>
+            <p className="text-base leading-7 text-zinc-300">That peak only ever moves up when you close a trade at a new highest balance — floating, unrealized profit never pushes it higher.</p>
+            <p className="text-base leading-7 text-zinc-300">But the floor itself is checked against your real-time balance at all times, including any trade still open. If your equity — closed balance plus floating profit or loss — dips to or below the floor, that's an immediate breach, even if that same trade would have gone on to recover and close in profit.</p>
+            <p className="text-base leading-7 text-zinc-300">This means the floor only ever moves up, never down — but it's a live line, watched continuously, not something that only matters once a trade closes.</p>
           </div>
           <div className="mt-7 rounded-2xl border border-[#D4AF37]/25 bg-black/40 p-6">
             <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#D4AF37]">Worked Example</p>
             <ol className="mt-4 space-y-2.5">
-              {["You start with a N500,000 account.", "You close a trade, bringing your balance to a new high of N520,000 — your drawdown threshold recalculates from N520,000.", "You open a new trade showing N530,000 in floating profit. Your drawdown floor does NOT move yet, since it's unrealized.", "You close that trade at N530,000 — a new highest closed balance. The threshold recalculates again.", "Your balance later drops to N510,000. Your drawdown floor stays anchored to the N530,000 closed high, not the current N510,000 balance."].map((step, i) => (
+              {["You start with a N500,000 account. Your drawdown floor is set at N400,000 (20% below).", "You close a trade, bringing your balance to a new high of N520,000 — your floor recalculates upward to N416,000.", "You open a new trade. While it's still open, floating losses push your equity down to N410,000 — this is above the N416,000 floor, so no breach yet.", "The same trade continues moving against you. Your floating equity reaches N414,000 — this is below the N416,000 floor. Your challenge fails at this exact moment.", "It doesn't matter that the trade was never closed, or that price may have gone on to recover afterward — the breach was triggered the instant your live equity crossed the floor."].map((step, i) => (
                 <li key={i} className="flex gap-2.5 text-sm leading-6 text-zinc-400">
                   <span className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-[#D4AF37]/10 text-[10px] font-bold text-[#D4AF37]">{i + 1}</span>
                   {step}
