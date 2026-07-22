@@ -28,11 +28,15 @@ export async function sendChallengePurchasedEmail(to: string, params: { challeng
   return sendEmail({ to, subject: "Your Voltex Funding Challenge Purchase", html });
 }
 
+/**
+ * Deliberately sends ONLY the master (trading) password to the trader —
+ * the investor (read-only) password is reserved for Voltex Funding's
+ * own internal monitoring system and is never included here.
+ */
 export async function sendChallengeCredentialsEmail(to: string, params: {
   challengeName: string;
   login: string;
   password: string;
-  investorPassword: string;
   server: string;
   broker: string;
 }) {
@@ -42,7 +46,6 @@ export async function sendChallengeCredentialsEmail(to: string, params: {
     <table style="width:100%;margin-top:16px;font-size:14px;color:#fff;">
       <tr><td style="padding:6px 0;color:#888;">Login</td><td style="padding:6px 0;text-align:right;">${params.login}</td></tr>
       <tr><td style="padding:6px 0;color:#888;">Password</td><td style="padding:6px 0;text-align:right;">${params.password}</td></tr>
-      <tr><td style="padding:6px 0;color:#888;">Investor Password</td><td style="padding:6px 0;text-align:right;">${params.investorPassword}</td></tr>
       <tr><td style="padding:6px 0;color:#888;">Server</td><td style="padding:6px 0;text-align:right;">${params.server}</td></tr>
       <tr><td style="padding:6px 0;color:#888;">Broker</td><td style="padding:6px 0;text-align:right;">${params.broker}</td></tr>
     </table>

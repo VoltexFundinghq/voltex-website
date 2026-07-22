@@ -64,7 +64,6 @@ export async function provisionChallengeAccount(params: {
     challengeName: challenge.challenge_name,
     login: account.login,
     password: account.password,
-    investorPassword: account.investor_password,
     server: account.server,
     broker: account.broker,
   });
