@@ -21,19 +21,16 @@ export async function requireUser() {
   return user;
 }
 
-/**
- * Requires the current user to be a logged-in admin. Non-admins (and
- * logged-out users) are redirected home — there's no admin UI to send
- * them to yet, that's Phase 5.
- */
 export async function requireAdmin() {
   const user = await requireUser();
   const supabase = await createClient();
-  const { data: profile } = await supabase
+  const profileQuery = await supabase
     .from("users")
     .select("is_admin")
     .eq("id", user.id)
     .single();
+
+  const profile = profileQuery.data as { is_admin: boolean } | null;
 
   if (!profile?.is_admin) {
     redirect("/");

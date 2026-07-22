@@ -35,7 +35,8 @@ export default function Navbar() {
         return;
       }
       setLoggedIn(true);
-      const { data: profile } = await supabase.from("users").select("username").eq("id", user.id).single();
+      const profileQuery = await supabase.from("users").select("username").eq("id", user.id).single();
+      const profile = profileQuery.data as { username: string | null } | null;
       setDisplayHandle(profile?.username || user.email?.split("@")[0] || "Trader");
     }
 
@@ -45,7 +46,10 @@ export default function Navbar() {
       if (session?.user) {
         setLoggedIn(true);
         supabase.from("users").select("username").eq("id", session.user.id).single()
-          .then(({ data }) => setDisplayHandle(data?.username || session.user.email?.split("@")[0] || "Trader"));
+          .then((result) => {
+            const data = result.data as { username: string | null } | null;
+            setDisplayHandle(data?.username || session.user.email?.split("@")[0] || "Trader");
+          });
       } else {
         setLoggedIn(false);
         setDisplayHandle(null);

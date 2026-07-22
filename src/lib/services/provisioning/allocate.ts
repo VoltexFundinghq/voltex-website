@@ -10,10 +10,7 @@ export interface ProvisionResult {
 
 /**
  * Creates a user_challenge record and attempts to atomically allocate an
- * available trading account of the matching size. If no account is
- * currently available, the challenge stays "awaiting_allocation" — safe
- * to retry later once new inventory is imported, with zero risk of
- * double-assigning the same account to two traders.
+ * available trading account of the matching size.
  */
 export async function provisionChallengeAccount(params: {
   userId: string;
@@ -28,8 +25,8 @@ export async function provisionChallengeAccount(params: {
 
   const serviceClient = createServiceClient();
 
-  const { data: userChallenge, error: createError } = await serviceClient
-    .from("user_challenges")
+  const { data: userChallenge, error: createError } = await (serviceClient
+    .from("user_challenges") as any)
     .insert({
       user_id: params.userId,
       challenge_id: params.challengeConfigId,
@@ -46,7 +43,7 @@ export async function provisionChallengeAccount(params: {
     return { success: false, allocated: false };
   }
 
-  const { data: allocation, error: allocError } = await serviceClient.rpc("allocate_trading_account", {
+  const { data: allocation, error: allocError } = await (serviceClient.rpc as any)("allocate_trading_account", {
     p_user_challenge_id: userChallenge.id,
     p_account_size: challenge.account_size,
   });

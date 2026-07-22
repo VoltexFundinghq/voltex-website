@@ -19,26 +19,20 @@ export async function getMyNotifications(): Promise<Notification[]> {
 
 export async function markNotificationRead(notificationId: string): Promise<boolean> {
   const supabase = await createClient();
-  const { error } = await supabase
-    .from("notifications")
+  const { error } = await (supabase.from("notifications") as any)
     .update({ is_read: true })
     .eq("id", notificationId);
 
   return !error;
 }
 
-/**
- * Creates a notification for a specific user. Uses the service role
- * client since callers (like the webhook) have no logged-in session —
- * RLS's own policies don't apply here, service role bypasses them by design.
- */
 export async function createNotification(params: {
   userId: string;
   title: string;
   message: string;
 }): Promise<boolean> {
   const serviceClient = createServiceClient();
-  const { error } = await serviceClient.from("notifications").insert({
+  const { error } = await (serviceClient.from("notifications") as any).insert({
     user_id: params.userId,
     title: params.title,
     message: params.message,

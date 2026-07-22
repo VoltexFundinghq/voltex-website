@@ -265,4 +265,23 @@ export default function Dashboard() {
                 <button className="text-[11px] font-medium text-[#D4AF37]">View All</button>
               </div>
 
-              <div
+              <div className="mt-3 space-y-3">
+                {[
+                  "Min Hold Time: 3 Minutes",
+                  "Activity Requirement: 5 Days",
+                  "Weekend BTC/ETH Only",
+                ].map((rule) => (
+                  <div key={rule} className="flex items-center gap-1.5 text-xs text-zinc-300">
+                    <ShieldCheck className="h-3.5 w-3.5 flex-shrink-0 text-[#D4AF37]" />
+                    {rule}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

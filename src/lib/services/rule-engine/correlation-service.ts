@@ -4,13 +4,6 @@ import { getAdminUserIds } from "@/lib/database/admin";
 import { detectCrossAccountCorrelations } from "./detect-correlations";
 import type { AccountTradeSet } from "./correlation-types";
 
-/**
- * Runs correlation detection across all provided accounts, persists any
- * NEW flags (the trade_a_id/trade_b_id unique constraint means re-running
- * against the same data never creates duplicates), and notifies every
- * admin that a review is waiting. Never touches challenge status —
- * purely observational until a human reviews it.
- */
 export async function runCorrelationCheck(accounts: AccountTradeSet[]): Promise<number> {
   const flags = detectCrossAccountCorrelations(accounts);
   if (flags.length === 0) return 0;
@@ -19,7 +12,7 @@ export async function runCorrelationCheck(accounts: AccountTradeSet[]): Promise<
   let newFlagCount = 0;
 
   for (const flag of flags) {
-    const { error } = await serviceClient.from("correlation_flags").insert({
+    const { error } = await (serviceClient.from("correlation_flags") as any).insert({
       correlation_type: flag.correlationType,
       user_a_id: flag.userAId,
       user_b_id: flag.userBId,
@@ -31,8 +24,6 @@ export async function runCorrelationCheck(accounts: AccountTradeSet[]): Promise<
       volume_b: flag.volumeB,
     });
 
-    // A unique constraint violation here just means this exact pair was
-    // already flagged in a prior run — expected and fine, not an error.
     if (!error) {
       newFlagCount += 1;
     }

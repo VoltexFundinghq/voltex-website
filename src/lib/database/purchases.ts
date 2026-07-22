@@ -38,8 +38,7 @@ export async function createPurchase(params: {
 }): Promise<ChallengePurchase | null> {
   const supabase = await createClient();
 
-  const { data, error } = await supabase
-    .from("challenge_purchases")
+  const { data, error } = await (supabase.from("challenge_purchases") as any)
     .insert({
       user_id: params.userId,
       challenge_size: params.challengeSize,
@@ -72,8 +71,7 @@ export async function getPurchaseByReference(paymentReference: string): Promise<
 
 export async function updatePurchaseStatus(purchaseId: string, status: PaymentStatus): Promise<boolean> {
   const serviceClient = createServiceClient();
-  const { error } = await serviceClient
-    .from("challenge_purchases")
+  const { error } = await (serviceClient.from("challenge_purchases") as any)
     .update({ payment_status: status })
     .eq("id", purchaseId);
 

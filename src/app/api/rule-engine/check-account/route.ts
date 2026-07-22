@@ -3,6 +3,7 @@ import { createServiceClient } from "@/lib/supabase/service";
 import { checkFloatingDrawdown } from "@/lib/services/rule-engine/floating-drawdown";
 import { createNotification } from "@/lib/database/notifications";
 import { getAdminUserIds } from "@/lib/database/admin";
+import type { UserChallenge } from "@/lib/types/database";
 
 export async function POST(request: Request) {
   const body = await request.json();
@@ -14,32 +15,41 @@ export async function POST(request: Request) {
 
   const serviceClient = createServiceClient();
 
-  const { data: account, error: accountError } = await serviceClient
+  const accountQuery = await serviceClient
     .from("trading_accounts")
     .select("id")
     .eq("login", String(accountLogin))
     .single();
 
+  const account = accountQuery.data as { id: string } | null;
+  const accountError = accountQuery.error;
+
   if (accountError || !account) {
     return NextResponse.json({ status: "ignored", reason: "unknown account" });
   }
 
-  const { data: challenge, error: challengeError } = await serviceClient
+  const challengeQuery = await serviceClient
     .from("user_challenges")
     .select("*")
     .eq("trading_account_id", account.id)
     .eq("status", "active")
     .single();
 
+  const challenge = challengeQuery.data as UserChallenge | null;
+  const challengeError = challengeQuery.error;
+
   if (challengeError || !challenge) {
     return NextResponse.json({ status: "ignored", reason: "no active challenge for this account" });
   }
 
-  let peakClosedBalance = challenge.peak_closed_balance;
-  if (peakClosedBalance === null || balance > peakClosedBalance) {
-    peakClosedBalance = balance;
-    await serviceClient
-      .from("user_challenges")
+  const currentPeak = challenge.peak_closed_balance;
+  const numericBalance = Number(balance);
+  const peakClosedBalance: number =
+    currentPeak === null ? numericBalance : Math.max(currentPeak, numericBalance);
+  const peakNeedsUpdate = currentPeak === null || numericBalance > currentPeak;
+
+  if (peakNeedsUpdate) {
+    await (serviceClient.from("user_challenges") as any)
       .update({ peak_closed_balance: peakClosedBalance })
       .eq("id", challenge.id);
   }
@@ -51,7 +61,7 @@ export async function POST(request: Request) {
   });
 
   if (result.breached) {
-    const { error: rpcError } = await serviceClient.rpc("complete_user_challenge", {
+    const { error: rpcError } = await (serviceClient.rpc as any)("complete_user_challenge", {
       p_user_challenge_id: challenge.id,
       p_outcome: "failed",
     });

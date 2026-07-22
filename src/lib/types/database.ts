@@ -38,6 +38,8 @@ export interface TradingAccount {
   account_size: number | null;
   currency: string;
   status: TradingAccountStatus;
+  pa_label: string | null;
+  last_known_activity_at: string | null;
   created_at: string;
 }
 
@@ -53,8 +55,9 @@ export interface UserChallenge {
   profit_target: number;
   drawdown_limit: number;
   profit_split: number;
-  // Permanent historical snapshot — set once at allocation, never
-  // changes again even after the underlying account is recycled.
+  current_phase: number;
+  phase_transition_pending: boolean;
+  peak_closed_balance: number | null;
   account_login: string | null;
   account_investor_password: string | null;
   account_server: string | null;

@@ -145,11 +145,13 @@ export async function signIn(prevState: AuthResult, formData: FormData): Promise
 
   if (!identifier.includes("@")) {
     const serviceClient = createServiceClient();
-    const { data: profile } = await serviceClient
+    const profileQuery = await serviceClient
       .from("users")
       .select("email")
       .eq("username", identifier)
       .single();
+
+    const profile = profileQuery.data as { email: string } | null;
 
     if (!profile) {
       return { error: "Invalid login credentials." };
