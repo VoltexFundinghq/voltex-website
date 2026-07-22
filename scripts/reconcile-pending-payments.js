@@ -7,8 +7,6 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
-// Matches the real, established pricing table — used only to map a
-// purchase's known price back to its account size for allocation.
 const PRICE_TO_ACCOUNT_SIZE = {
   8900: 200000,
   13900: 300000,
@@ -59,6 +57,41 @@ async function queryPalmPay(orderId) {
   return response.json();
 }
 
+async function sendCredentialsEmail(toEmail, challengeName, account) {
+  const html = `
+    <div style="background:#0a0a0a;padding:32px 16px;font-family:Arial,sans-serif;">
+      <div style="max-width:480px;margin:0 auto;background:#111;border:1px solid #D4AF3733;border-radius:16px;padding:32px;color:#fff;">
+        <p style="color:#D4AF37;font-size:12px;letter-spacing:2px;text-transform:uppercase;margin:0 0 16px;">Voltex Funding</p>
+        <h2 style="margin:0 0 12px;">Your Trading Account Is Ready</h2>
+        <p style="color:#ccc;line-height:1.6;">Your ${challengeName} account has been set up. Here are your MT5 details:</p>
+        <table style="width:100%;margin-top:16px;font-size:14px;color:#fff;">
+          <tr><td style="padding:6px 0;color:#888;">Login</td><td style="padding:6px 0;text-align:right;">${account.login}</td></tr>
+          <tr><td style="padding:6px 0;color:#888;">Password</td><td style="padding:6px 0;text-align:right;">${account.password}</td></tr>
+          <tr><td style="padding:6px 0;color:#888;">Investor Password</td><td style="padding:6px 0;text-align:right;">${account.investor_password}</td></tr>
+          <tr><td style="padding:6px 0;color:#888;">Server</td><td style="padding:6px 0;text-align:right;">${account.server}</td></tr>
+          <tr><td style="padding:6px 0;color:#888;">Broker</td><td style="padding:6px 0;text-align:right;">${account.broker}</td></tr>
+        </table>
+        <p style="color:#ccc;line-height:1.6;margin-top:20px;">Download MT5 and log in with the details above to begin trading.</p>
+      </div>
+    </div>
+  `;
+
+  const response = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${process.env.RESEND_API_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      from: 'Voltex Funding <support@voltexfunding.com>',
+      to: toEmail,
+      subject: 'Your Voltex Funding MT5 Account Details',
+      html,
+    }),
+  });
+  return response.json();
+}
+
 async function reconcile() {
   const { data: pendingPurchases, error } = await supabase
     .from('challenge_purchases')
@@ -81,17 +114,13 @@ async function reconcile() {
       continue;
     }
 
-    const realStatus = result.data.orderStatus;
-
-    if (realStatus !== 2) {
-      console.log(`  PalmPay shows orderStatus ${realStatus} (not yet completed) — leaving as pending.`);
+    if (result.data.orderStatus !== 2) {
+      console.log(`  PalmPay shows orderStatus ${result.data.orderStatus} (not yet completed) — leaving as pending.`);
       continue;
     }
 
     console.log(`  PalmPay confirms this order is genuinely completed. Reconciling...`);
 
-    // Same atomic guard the webhook itself uses — only proceed if we're
-    // the one actually flipping it, protecting against any double-run.
     const { data: updatedRows, error: updateError } = await supabase
       .from('challenge_purchases')
       .update({ payment_status: 'completed' })
@@ -103,6 +132,12 @@ async function reconcile() {
       console.log(`  Update skipped or failed (already handled?):`, updateError?.message);
       continue;
     }
+
+    const { data: userRow } = await supabase
+      .from('users')
+      .select('email')
+      .eq('id', purchase.user_id)
+      .single();
 
     await supabase.from('notifications').insert({
       user_id: purchase.user_id,
@@ -157,6 +192,13 @@ async function reconcile() {
       console.log(`  No available ${accountSize} account right now — left as awaiting_allocation.`);
     } else {
       console.log(`  Successfully allocated account login ${allocation[0].login}.`);
+
+      if (userRow?.email) {
+        const emailResult = await sendCredentialsEmail(userRow.email, purchase.challenge_size, allocation[0]);
+        console.log(`  Credentials email sent:`, emailResult.id ? 'success' : emailResult);
+      } else {
+        console.log(`  WARNING: no user email found — could not send credentials email.`);
+      }
     }
   }
 
