@@ -53,3 +53,11 @@ export async function sendChallengeCredentialsEmail(to: string, params: {
   `);
   return sendEmail({ to, subject: "Your Voltex Funding MT5 Account Details", html });
 }
+
+export async function sendRuleEngineAlertEmail(to: string, params: { title: string; message: string }) {
+  const html = wrapper(`
+    <h2 style="margin:0 0 12px;">${params.title}</h2>
+    <p style="color:#ccc;line-height:1.6;">${params.message}</p>
+  `);
+  return sendEmail({ to, subject: params.title, html });
+}

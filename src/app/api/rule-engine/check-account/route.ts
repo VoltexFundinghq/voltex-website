@@ -4,8 +4,30 @@ import { checkFloatingDrawdown } from "@/lib/services/rule-engine/floating-drawd
 import { evaluateChallenge } from "@/lib/services/rule-engine/evaluate";
 import { createNotification } from "@/lib/database/notifications";
 import { getAdminUserIds } from "@/lib/database/admin";
+import { sendRuleEngineAlertEmail } from "@/lib/services/email/templates";
 import type { UserChallenge } from "@/lib/types/database";
 import type { ClosedTrade } from "@/lib/services/rule-engine/types";
+
+async function getTraderEmail(serviceClient: ReturnType<typeof createServiceClient>, userId: string): Promise<string | null> {
+  const query = await serviceClient.from("users").select("email").eq("id", userId).single();
+  const data = query.data as { email: string } | null;
+  return data?.email ?? null;
+}
+
+async function notifyTrader(
+  serviceClient: ReturnType<typeof createServiceClient>,
+  userId: string,
+  title: string,
+  message: string
+) {
+  await createNotification({ userId, title, message });
+  const email = await getTraderEmail(serviceClient, userId);
+  if (email) {
+    await sendRuleEngineAlertEmail(email, { title, message });
+  } else {
+    console.error(`notifyTrader: no email found for user ${userId} — in-app notification created, but email NOT sent.`);
+  }
+}
 
 export async function POST(request: Request) {
   const body = await request.json();
@@ -65,11 +87,12 @@ export async function POST(request: Request) {
       p_user_challenge_id: challenge.id,
       p_outcome: "failed",
     });
-    await createNotification({
-      userId: challenge.user_id,
-      title: "Challenge Failed — Drawdown Breach",
-      message: `Your account breached the ${challenge.drawdown_limit}% drawdown limit. Equity ${equity} fell below the floor of ${floatingResult.drawdownFloor.toFixed(2)}.`,
-    });
+    await notifyTrader(
+      serviceClient,
+      challenge.user_id,
+      "Challenge Failed — Drawdown Breach",
+      `Your account breached the ${challenge.drawdown_limit}% drawdown limit. Equity ${equity} fell below the floor of ${floatingResult.drawdownFloor.toFixed(2)}.`
+    );
     for (const adminId of await getAdminUserIds()) {
       await createNotification({
         userId: adminId,
@@ -105,11 +128,12 @@ export async function POST(request: Request) {
         p_user_challenge_id: challenge.id,
         p_outcome: "failed",
       });
-      await createNotification({
-        userId: challenge.user_id,
-        title: "Challenge Failed",
-        message: `Your challenge was failed: ${result.violations[result.violations.length - 1]?.message ?? result.breachedRule}`,
-      });
+      await notifyTrader(
+        serviceClient,
+        challenge.user_id,
+        "Challenge Failed",
+        `Your challenge was failed: ${result.violations[result.violations.length - 1]?.message ?? result.breachedRule}`
+      );
       for (const adminId of await getAdminUserIds()) {
         await createNotification({
           userId: adminId,
@@ -123,11 +147,12 @@ export async function POST(request: Request) {
     if (result.outcome === "passed") {
       if (challenge.current_phase === 1) {
         await (serviceClient.rpc as any)("complete_phase_one", { p_user_challenge_id: challenge.id });
-        await createNotification({
-          userId: challenge.user_id,
-          title: "Phase 1 Passed!",
-          message: `You've passed Phase 1 with ${result.currentProfitPercent.toFixed(2)}% profit. Your account will be reset to start Phase 2 shortly.`,
-        });
+        await notifyTrader(
+          serviceClient,
+          challenge.user_id,
+          "Phase 1 Passed!",
+          `You've passed Phase 1 with ${result.currentProfitPercent.toFixed(2)}% profit. Your account will be reset to start Phase 2 shortly.`
+        );
         for (const adminId of await getAdminUserIds()) {
           await createNotification({
             userId: adminId,
@@ -139,11 +164,12 @@ export async function POST(request: Request) {
         await (serviceClient.from("user_challenges") as any)
           .update({ status: "passed" })
           .eq("id", challenge.id);
-        await createNotification({
-          userId: challenge.user_id,
-          title: "Challenge Passed!",
-          message: `Congratulations — you've completed your evaluation. Our team will process your funded account shortly.`,
-        });
+        await notifyTrader(
+          serviceClient,
+          challenge.user_id,
+          "Challenge Passed!",
+          `Congratulations — you've completed your evaluation. Our team will process your funded account shortly.`
+        );
         for (const adminId of await getAdminUserIds()) {
           await createNotification({
             userId: adminId,
@@ -155,22 +181,16 @@ export async function POST(request: Request) {
       return NextResponse.json({ status: "passed", ...result });
     }
 
-    // Not failed, not passed — but a NEW hold-time warning may have
-    // just occurred. Only fires once per new warning number, never
-    // re-fires on repeated checks of the same trade history.
     if (result.totalHoldTimeWarnings > (challenge.hold_time_warnings_notified ?? 0)) {
       const warningNumber = result.totalHoldTimeWarnings;
 
-      // Trader gets a direct email ONLY at the agreed checkpoint —
-      // warning #2 — with a clear countdown. Warnings 1 and 3 are
-      // recorded (and will be visible once a dashboard reads this
-      // data) but don't independently email the trader.
       if (warningNumber === 2) {
-        await createNotification({
-          userId: challenge.user_id,
-          title: "Second Warning — Minimum Hold Time",
-          message: `This is your second warning for closing a trade too quickly. If you close 2 more trades in under 3 minutes, your challenge will be breached.`,
-        });
+        await notifyTrader(
+          serviceClient,
+          challenge.user_id,
+          "Second Warning — Minimum Hold Time",
+          `This is your second warning for closing a trade too quickly. If you close 2 more trades in under 3 minutes, your challenge will be breached.`
+        );
       }
 
       for (const adminId of await getAdminUserIds()) {

@@ -39,7 +39,7 @@ export default function CoreRulesDetailed() {
           <div className="mt-4 space-y-3">
             <p className="text-base leading-7 text-zinc-300">Every position you open must remain open for at least three minutes before it can be closed. This applies across Phase 1, Phase 2, and your funded account.</p>
             <p className="text-base leading-7 text-zinc-300">This rule exists to discourage latency arbitrage and ultra-fast execution strategies that exploit tiny price-feed delays rather than genuine market analysis — the kind of activity that has nothing to do with actual trading skill.</p>
-            <p className="text-base leading-7 text-zinc-300">Closing a position before the three-minute mark may flag that trade as a rule violation, so build this into your strategy from the start rather than treating it as an afterthought.</p>
+            <p className="text-base leading-7 text-zinc-300">Closing a position too early counts as a warning, not an instant failure — but only up to a point. Three warnings are tolerated; a fourth violation fails your challenge immediately. You'll receive an email alert specifically at your second warning, giving you a clear heads-up before it's too late.</p>
           </div>
         </motion.div>
 
