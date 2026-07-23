@@ -3,7 +3,7 @@ import type { ClosedTrade, RuleEngineInput, RuleEngineResult, RuleViolation } fr
 const PROFIT_TARGET_PERCENT = 10;
 const DRAWDOWN_LIMIT_PERCENT = 20;
 const MIN_HOLD_TIME_MINUTES = 3;
-const MAX_HOLD_TIME_WARNINGS = 4; // a 5th violation is what actually fails the account
+const MAX_HOLD_TIME_WARNINGS = 3; // the 4th violation is what actually fails the account (tightened from 5 to 4 total occurrences)
 const INACTIVITY_LIMIT_DAYS = 5;
 
 function minutesBetween(a: Date, b: Date): number {
@@ -19,16 +19,14 @@ function daysBetween(a: Date, b: Date): number {
  * rules. Enforcement policy per rule (confirmed with the business):
  *   - Trailing Drawdown: immediate fail, no warnings.
  *   - 5-Day Inactivity: immediate fail, no warnings.
- *   - Minimum Hold Time: warning-based — 4 warnings allowed, the 5th
- *     violation fails the account.
+ *   - Minimum Hold Time: warning-based — 3 warnings allowed, the 4th
+ *     violation fails the account (tightened from the original 4/5 split).
+ *     A specific "second warning" email is sent to the trader at
+ *     exactly the 2nd occurrence, giving a clear countdown before
+ *     the 4th ends the challenge.
  *
- * IMPORTANT (confirmed with the business): a trade's real profit/loss
- * is ALWAYS applied to the balance, even if that exact trade is the
- * one that triggers a fatal rule violation. Money made or lost is
- * money made or lost, regardless of the rule outcome — and every
- * violation record carries that trade's exact profit and timestamp,
- * so any future dispute can be settled by pointing at one specific,
- * unambiguous entry rather than reconstructing the story by hand.
+ * Every trade's real P&L is ALWAYS applied to the balance, even if
+ * that exact trade is the one that triggers a fatal violation.
  *
  * Deliberately excludes News Trading and Weekend Crypto — both need
  * infrastructure (calendar data, a separate persistent counter) not
@@ -50,16 +48,11 @@ export function evaluateChallenge(input: RuleEngineInput): RuleEngineResult {
   for (const trade of closedTrades) {
     if (breachedRule) break;
 
-    // Every trade's real P&L is applied FIRST, unconditionally —
-    // before any rule check runs. This guarantees the balance always
-    // reflects reality, even on the exact trade that ends up being
-    // the fatal one for whichever rule catches it.
     balance += trade.profit;
     if (balance > peak) {
       peak = balance;
     }
 
-    // Minimum hold time — warning-based enforcement
     const holdMinutes = minutesBetween(trade.openTime, trade.closeTime);
     if (holdMinutes < MIN_HOLD_TIME_MINUTES) {
       holdTimeWarnings += 1;
@@ -68,7 +61,7 @@ export function evaluateChallenge(input: RuleEngineInput): RuleEngineResult {
       violations.push({
         rule: "min_hold_time",
         message: isFatal
-          ? `Trade ${trade.id} on ${trade.symbol} held ${holdMinutes.toFixed(1)} min — this is warning #${holdTimeWarnings}, exceeding the ${MAX_HOLD_TIME_WARNINGS}-warning limit. Account failed.`
+          ? `Trade ${trade.id} on ${trade.symbol} held ${holdMinutes.toFixed(1)} min — this is occurrence #${holdTimeWarnings}, exceeding the ${MAX_HOLD_TIME_WARNINGS}-warning limit. Account failed.`
           : `Trade ${trade.id} on ${trade.symbol} held ${holdMinutes.toFixed(1)} min, below the ${MIN_HOLD_TIME_MINUTES}-minute minimum. Warning ${holdTimeWarnings}/${MAX_HOLD_TIME_WARNINGS}.`,
         tradeId: trade.id,
         profit: trade.profit,
@@ -82,7 +75,6 @@ export function evaluateChallenge(input: RuleEngineInput): RuleEngineResult {
 
     if (breachedRule) break;
 
-    // Trailing drawdown — always an immediate breach
     const drawdownFloor = peak * (1 - DRAWDOWN_LIMIT_PERCENT / 100);
     if (balance <= drawdownFloor) {
       violations.push({

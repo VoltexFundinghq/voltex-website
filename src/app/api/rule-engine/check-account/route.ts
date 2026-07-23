@@ -81,11 +81,6 @@ export async function POST(request: Request) {
   }
 
   if (Array.isArray(closedTrades)) {
-    // CRITICAL: only trades from THIS specific challenge attempt count.
-    // Exness trade history is permanent and can never be cleared — a
-    // recycled account carries every prior trader's history forever.
-    // Without this filter, old test/prior-trader trades would
-    // silently contaminate the current, brand-new evaluation.
     const trades: ClosedTrade[] = closedTrades
       .map((t: any) => ({
         id: String(t.id),
@@ -159,6 +154,39 @@ export async function POST(request: Request) {
       }
       return NextResponse.json({ status: "passed", ...result });
     }
+
+    // Not failed, not passed — but a NEW hold-time warning may have
+    // just occurred. Only fires once per new warning number, never
+    // re-fires on repeated checks of the same trade history.
+    if (result.totalHoldTimeWarnings > (challenge.hold_time_warnings_notified ?? 0)) {
+      const warningNumber = result.totalHoldTimeWarnings;
+
+      // Trader gets a direct email ONLY at the agreed checkpoint —
+      // warning #2 — with a clear countdown. Warnings 1 and 3 are
+      // recorded (and will be visible once a dashboard reads this
+      // data) but don't independently email the trader.
+      if (warningNumber === 2) {
+        await createNotification({
+          userId: challenge.user_id,
+          title: "Second Warning — Minimum Hold Time",
+          message: `This is your second warning for closing a trade too quickly. If you close 2 more trades in under 3 minutes, your challenge will be breached.`,
+        });
+      }
+
+      for (const adminId of await getAdminUserIds()) {
+        await createNotification({
+          userId: adminId,
+          title: "Hold-Time Warning Issued",
+          message: `Account ${accountLogin} received hold-time warning ${warningNumber}/3.`,
+        });
+      }
+
+      await (serviceClient.from("user_challenges") as any)
+        .update({ hold_time_warnings_notified: warningNumber })
+        .eq("id", challenge.id);
+    }
+
+    return NextResponse.json({ status: "ok", holdTimeWarnings: result.totalHoldTimeWarnings, drawdown: floatingResult });
   }
 
   return NextResponse.json({ status: "ok", drawdown: floatingResult });

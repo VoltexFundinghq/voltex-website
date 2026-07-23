@@ -58,7 +58,9 @@ export interface UserChallenge {
   current_phase: number;
   phase_transition_pending: boolean;
   peak_closed_balance: number | null;
+  hold_time_warnings_notified: number;
   account_login: string | null;
+  account_password: string | null;
   account_investor_password: string | null;
   account_server: string | null;
   account_broker: string | null;
