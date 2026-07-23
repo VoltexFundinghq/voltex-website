@@ -2,11 +2,12 @@
 
 import { motion } from "framer-motion";
 import Link from "next/link";
-import { TrendingUp, Clock3, Wallet, Globe2, Zap, ShieldCheck } from "lucide-react";
+import { TrendingUp, Clock3, Wallet, Globe2, Zap, ShieldCheck, MailWarning } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 const features = [
   { icon: TrendingUp, title: "Balance-Based Trailing Drawdown", description: "Your maximum drawdown automatically recalculates from your highest closed account balance, creating a transparent and disciplined risk model that rewards consistent trading." },
+  { icon: MailWarning, title: "Early-Warning Alerts", description: "We email you before you breach — at 15% drawdown, your 2nd hold-time warning, and day 4 of inactivity — giving you a real chance to course-correct instead of a silent failure." },
   { icon: Clock3, title: "No Time Limits", description: "Trade at your own pace without unnecessary deadlines. Focus on consistency instead of racing against the clock." },
   { icon: Wallet, title: "80% Profit Split", description: "Keep up to 80% of the profits you generate and grow with a model designed to reward disciplined traders." },
   { icon: Globe2, title: "Built for Nigerian Traders", description: "Designed with Nigerian traders in mind through local payment methods, responsive support, and a trading experience tailored to our region." },
