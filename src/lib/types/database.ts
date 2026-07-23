@@ -61,6 +61,9 @@ export interface UserChallenge {
   hold_time_warnings_notified: number;
   drawdown_warning_sent: boolean;
   inactivity_warning_sent: boolean;
+  baseline_trade_id: number;
+  last_balance_deal_id: number;
+  phase_reset_baseline_balance: number | null;
   account_login: string | null;
   account_password: string | null;
   account_investor_password: string | null;

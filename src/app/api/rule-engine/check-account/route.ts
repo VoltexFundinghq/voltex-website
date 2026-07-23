@@ -35,7 +35,7 @@ async function notifyTrader(
 
 export async function POST(request: Request) {
   const body = await request.json();
-  const { accountLogin, balance, equity, closedTrades } = body;
+  const { accountLogin, balance, equity, closedTrades, latestBalanceDealId } = body;
 
   if (!accountLogin || balance === undefined || equity === undefined) {
     return NextResponse.json({ error: "Missing accountLogin, balance, or equity" }, { status: 400 });
@@ -66,6 +66,53 @@ export async function POST(request: Request) {
     return NextResponse.json({ status: "ignored", reason: "no active challenge for this account" });
   }
 
+  // --- Record every trade this check, tagged with whichever phase is
+  // CURRENT right now — this is the permanent record a future trader
+  // dashboard reads from. Safe to re-send the same trade repeatedly;
+  // the unique constraint plus ignoreDuplicates prevents any duplicate rows. ---
+  if (Array.isArray(closedTrades)) {
+    for (const t of closedTrades) {
+      await (serviceClient.from("recorded_trades") as any)
+        .upsert(
+          {
+            user_challenge_id: challenge.id,
+            trade_id: String(t.id),
+            symbol: t.symbol,
+            profit: Number(t.profit),
+            phase: challenge.current_phase,
+            open_time: t.openTime,
+            close_time: t.closeTime,
+          },
+          { onConflict: "user_challenge_id,trade_id", ignoreDuplicates: true }
+        );
+    }
+  }
+
+  // --- Detect a genuinely NEW manual balance reset. Durable,
+  // crash-safe comparison: only treated as real if this specific
+  // balance-deal ticket ID is HIGHER than the last one we've already
+  // processed — never a one-shot flag that could vanish on a restart. ---
+  const dealId = Number(latestBalanceDealId ?? 0);
+  if (dealId > 0 && dealId > (challenge.last_balance_deal_id ?? 0)) {
+    await (serviceClient.from("user_challenges") as any)
+      .update({
+        phase_reset_baseline_balance: Number(balance),
+        peak_closed_balance: Number(balance),
+        phase_transition_pending: false,
+        last_balance_deal_id: dealId,
+      })
+      .eq("id", challenge.id);
+
+    await notifyTrader(
+      serviceClient,
+      challenge.user_id,
+      "Phase 2 Started",
+      `Your account balance has been reset to ${Number(balance).toLocaleString()}. Phase 2 evaluation begins now — good luck!`
+    );
+
+    return NextResponse.json({ status: "phase_reset_confirmed", newBalance: balance });
+  }
+
   const challengeStartDate = new Date(challenge.start_date ?? challenge.purchase_date);
 
   const currentPeak = challenge.peak_closed_balance;
@@ -91,9 +138,6 @@ export async function POST(request: Request) {
     floatingResult.currentDrawdownPercent >= DRAWDOWN_WARNING_THRESHOLD_PERCENT &&
     !challenge.drawdown_warning_sent
   ) {
-    // Atomic guard: only the request that actually flips this flag
-    // from false to true gets to send the email — any concurrent or
-    // repeated check safely no-ops instead of re-sending.
     const { data: claimed } = await (serviceClient.from("user_challenges") as any)
       .update({ drawdown_warning_sent: true })
       .eq("id", challenge.id)
@@ -201,18 +245,25 @@ export async function POST(request: Request) {
 
     if (result.outcome === "passed") {
       if (challenge.current_phase === 1) {
-        await (serviceClient.rpc as any)("complete_phase_one", { p_user_challenge_id: challenge.id });
+        // Does NOT drop the account — poller keeps watching the exact
+        // same connection, uninterrupted. current_phase moves to 2
+        // immediately so new trades get tagged correctly, but the
+        // real floor/peak only update once the actual reset is
+        // detected above.
+        await (serviceClient.from("user_challenges") as any)
+          .update({ current_phase: 2, phase_transition_pending: true })
+          .eq("id", challenge.id);
         await notifyTrader(
           serviceClient,
           challenge.user_id,
           "Phase 1 Passed!",
-          `You've passed Phase 1 with ${result.currentProfitPercent.toFixed(2)}% profit. Your account will be reset to start Phase 2 shortly.`
+          `You've passed Phase 1 with ${result.currentProfitPercent.toFixed(2)}% profit. We'll reset your balance shortly to begin Phase 2 — keep the same login open.`
         );
         for (const adminId of await getAdminUserIds()) {
           await createNotification({
             userId: adminId,
             title: "Phase 1 Passed — Manual Reset Needed",
-            message: `Account ${accountLogin} passed Phase 1. Please manually reset the balance on Exness, then confirm via confirm_phase_two_started.`,
+            message: `Account ${accountLogin} passed Phase 1. Please manually reset the balance on Exness — our system will detect it automatically.`,
           });
         }
       } else {
@@ -239,11 +290,6 @@ export async function POST(request: Request) {
     if (result.totalHoldTimeWarnings > (challenge.hold_time_warnings_notified ?? 0)) {
       const warningNumber = result.totalHoldTimeWarnings;
 
-      // Atomic guard: only proceeds if this exact warning number hasn't
-      // already been recorded — the .lt() (less-than) check on the
-      // CURRENT stored value, checked and updated in one operation,
-      // makes this safe against rapid repeated calls in a way a
-      // separate read-then-write never was.
       const { data: claimed } = await (serviceClient.from("user_challenges") as any)
         .update({ hold_time_warnings_notified: warningNumber })
         .eq("id", challenge.id)
@@ -259,8 +305,8 @@ export async function POST(request: Request) {
         );
       }
 
-      for (const adminId of await getAdminUserIds()) {
-        if (claimed && claimed.length > 0) {
+      if (claimed && claimed.length > 0) {
+        for (const adminId of await getAdminUserIds()) {
           await createNotification({
             userId: adminId,
             title: "Hold-Time Warning Issued",
