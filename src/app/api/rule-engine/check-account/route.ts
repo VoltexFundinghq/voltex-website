@@ -61,15 +61,11 @@ export async function POST(request: Request) {
     .eq("status", "active")
     .single();
 
-  const challenge = challengeQuery.data as UserChallenge | null;
+  const challenge = challengeQuery.data as UserChallenge & { balance_detection_paused?: boolean } | null;
   if (challengeQuery.error || !challenge) {
     return NextResponse.json({ status: "ignored", reason: "no active challenge for this account" });
   }
 
-  // --- Record every trade this check, tagged with whichever phase is
-  // CURRENT right now — this is the permanent record a future trader
-  // dashboard reads from. Safe to re-send the same trade repeatedly;
-  // the unique constraint plus ignoreDuplicates prevents any duplicate rows. ---
   if (Array.isArray(closedTrades)) {
     for (const t of closedTrades) {
       await (serviceClient.from("recorded_trades") as any)
@@ -88,12 +84,17 @@ export async function POST(request: Request) {
     }
   }
 
-  // --- Detect a genuinely NEW manual balance reset. Durable,
-  // crash-safe comparison: only treated as real if this specific
-  // balance-deal ticket ID is HIGHER than the last one we've already
-  // processed — never a one-shot flag that could vanish on a restart. ---
+  // Balance-reset detection — completely skipped while paused. This
+  // lets us test the ORIGINAL, already-proven evaluateChallenge()
+  // logic (10% profit target, drawdown) in isolation, without any risk
+  // of a real or leftover Balance-type deal being misread as a real
+  // phase transition during testing.
   const dealId = Number(latestBalanceDealId ?? 0);
-  if (dealId > 0 && dealId > (challenge.last_balance_deal_id ?? 0)) {
+  if (
+    !challenge.balance_detection_paused &&
+    dealId > 0 &&
+    dealId > (challenge.last_balance_deal_id ?? 0)
+  ) {
     await (serviceClient.from("user_challenges") as any)
       .update({
         phase_reset_baseline_balance: Number(balance),
@@ -245,11 +246,6 @@ export async function POST(request: Request) {
 
     if (result.outcome === "passed") {
       if (challenge.current_phase === 1) {
-        // Does NOT drop the account — poller keeps watching the exact
-        // same connection, uninterrupted. current_phase moves to 2
-        // immediately so new trades get tagged correctly, but the
-        // real floor/peak only update once the actual reset is
-        // detected above.
         await (serviceClient.from("user_challenges") as any)
           .update({ current_phase: 2, phase_transition_pending: true })
           .eq("id", challenge.id);
