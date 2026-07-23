@@ -86,21 +86,28 @@ export async function POST(request: Request) {
     drawdownLimitPercent: challenge.drawdown_limit,
   });
 
-  // Proactive drawdown warning at 15% — fires exactly once per challenge.
   if (
     !floatingResult.breached &&
     floatingResult.currentDrawdownPercent >= DRAWDOWN_WARNING_THRESHOLD_PERCENT &&
     !challenge.drawdown_warning_sent
   ) {
-    await notifyTrader(
-      serviceClient,
-      challenge.user_id,
-      "Drawdown Warning",
-      `Your account is currently ${floatingResult.currentDrawdownPercent.toFixed(1)}% down from your peak balance. Your challenge fails at ${challenge.drawdown_limit}% — please manage your risk carefully.`
-    );
-    await (serviceClient.from("user_challenges") as any)
+    // Atomic guard: only the request that actually flips this flag
+    // from false to true gets to send the email — any concurrent or
+    // repeated check safely no-ops instead of re-sending.
+    const { data: claimed } = await (serviceClient.from("user_challenges") as any)
       .update({ drawdown_warning_sent: true })
-      .eq("id", challenge.id);
+      .eq("id", challenge.id)
+      .eq("drawdown_warning_sent", false)
+      .select();
+
+    if (claimed && claimed.length > 0) {
+      await notifyTrader(
+        serviceClient,
+        challenge.user_id,
+        "Drawdown Warning",
+        `Your account is currently ${floatingResult.currentDrawdownPercent.toFixed(1)}% down from your peak balance. Your challenge fails at ${challenge.drawdown_limit}% — please manage your risk carefully.`
+      );
+    }
   }
 
   if (floatingResult.breached) {
@@ -136,10 +143,6 @@ export async function POST(request: Request) {
       }))
       .filter((t) => t.closeTime.getTime() >= challengeStartDate.getTime());
 
-    // Proactive inactivity warning at day 4 — computed separately from
-    // evaluateChallenge()'s own straight breach at day 5, so that
-    // function's tested logic and return shape stay completely
-    // untouched. Fires exactly once per challenge.
     const lastActivityTime = Math.max(
       challengeStartDate.getTime(),
       ...trades.map((t) => t.openTime.getTime())
@@ -151,15 +154,20 @@ export async function POST(request: Request) {
       daysSinceLastActivity < INACTIVITY_BREACH_DAY &&
       !challenge.inactivity_warning_sent
     ) {
-      await notifyTrader(
-        serviceClient,
-        challenge.user_id,
-        "Inactivity Warning",
-        `You haven't placed a trade in ${Math.floor(daysSinceLastActivity)} days. Your challenge will be breached if you reach 5 days of inactivity — place a trade soon to stay active.`
-      );
-      await (serviceClient.from("user_challenges") as any)
+      const { data: claimed } = await (serviceClient.from("user_challenges") as any)
         .update({ inactivity_warning_sent: true })
-        .eq("id", challenge.id);
+        .eq("id", challenge.id)
+        .eq("inactivity_warning_sent", false)
+        .select();
+
+      if (claimed && claimed.length > 0) {
+        await notifyTrader(
+          serviceClient,
+          challenge.user_id,
+          "Inactivity Warning",
+          `You haven't placed a trade in ${Math.floor(daysSinceLastActivity)} days. Your challenge will be breached if you reach 5 days of inactivity — place a trade soon to stay active.`
+        );
+      }
     }
 
     const result = evaluateChallenge({
@@ -231,7 +239,18 @@ export async function POST(request: Request) {
     if (result.totalHoldTimeWarnings > (challenge.hold_time_warnings_notified ?? 0)) {
       const warningNumber = result.totalHoldTimeWarnings;
 
-      if (warningNumber === 2) {
+      // Atomic guard: only proceeds if this exact warning number hasn't
+      // already been recorded — the .lt() (less-than) check on the
+      // CURRENT stored value, checked and updated in one operation,
+      // makes this safe against rapid repeated calls in a way a
+      // separate read-then-write never was.
+      const { data: claimed } = await (serviceClient.from("user_challenges") as any)
+        .update({ hold_time_warnings_notified: warningNumber })
+        .eq("id", challenge.id)
+        .lt("hold_time_warnings_notified", warningNumber)
+        .select();
+
+      if (claimed && claimed.length > 0 && warningNumber === 2) {
         await notifyTrader(
           serviceClient,
           challenge.user_id,
@@ -241,16 +260,14 @@ export async function POST(request: Request) {
       }
 
       for (const adminId of await getAdminUserIds()) {
-        await createNotification({
-          userId: adminId,
-          title: "Hold-Time Warning Issued",
-          message: `Account ${accountLogin} received hold-time warning ${warningNumber}/3.`,
-        });
+        if (claimed && claimed.length > 0) {
+          await createNotification({
+            userId: adminId,
+            title: "Hold-Time Warning Issued",
+            message: `Account ${accountLogin} received hold-time warning ${warningNumber}/3.`,
+          });
+        }
       }
-
-      await (serviceClient.from("user_challenges") as any)
-        .update({ hold_time_warnings_notified: warningNumber })
-        .eq("id", challenge.id);
     }
 
     return NextResponse.json({ status: "ok", holdTimeWarnings: result.totalHoldTimeWarnings, drawdown: floatingResult });
