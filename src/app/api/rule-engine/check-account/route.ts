@@ -11,6 +11,7 @@ import type { ClosedTrade } from "@/lib/services/rule-engine/types";
 const DRAWDOWN_WARNING_THRESHOLD_PERCENT = 15;
 const INACTIVITY_WARNING_DAY = 4;
 const INACTIVITY_BREACH_DAY = 5;
+const PROFIT_TARGET_PERCENT = 10;
 
 async function getTraderEmail(serviceClient: ReturnType<typeof createServiceClient>, userId: string): Promise<string | null> {
   const query = await serviceClient.from("users").select("email").eq("id", userId).single();
@@ -30,6 +31,49 @@ async function notifyTrader(
     await sendRuleEngineAlertEmail(email, { title, message });
   } else {
     console.error(`notifyTrader: no email found for user ${userId} — in-app notification created, but email NOT sent.`);
+  }
+}
+
+async function handlePassed(
+  serviceClient: ReturnType<typeof createServiceClient>,
+  challenge: UserChallenge,
+  accountLogin: string,
+  currentProfitPercent: number
+) {
+  if (challenge.current_phase === 1) {
+    await (serviceClient.from("user_challenges") as any)
+      .update({ current_phase: 2, phase_transition_pending: true })
+      .eq("id", challenge.id);
+    await notifyTrader(
+      serviceClient,
+      challenge.user_id,
+      "Phase 1 Passed!",
+      `You've passed Phase 1 with ${currentProfitPercent.toFixed(2)}% profit. We'll reset your balance shortly to begin Phase 2 — keep the same login open.`
+    );
+    for (const adminId of await getAdminUserIds()) {
+      await createNotification({
+        userId: adminId,
+        title: "Phase 1 Passed — Manual Reset Needed",
+        message: `Account ${accountLogin} passed Phase 1. Please manually reset the balance on Exness — our system will detect it automatically.`,
+      });
+    }
+  } else {
+    await (serviceClient.from("user_challenges") as any)
+      .update({ status: "passed" })
+      .eq("id", challenge.id);
+    await notifyTrader(
+      serviceClient,
+      challenge.user_id,
+      "Challenge Passed!",
+      `Congratulations — you've completed your evaluation. Our team will process your funded account shortly.`
+    );
+    for (const adminId of await getAdminUserIds()) {
+      await createNotification({
+        userId: adminId,
+        title: "Evaluation Passed — Funded Account Needed",
+        message: `Account ${accountLogin} (user_challenge ${challenge.id}) passed Phase 2. Manual funded account issuance required.`,
+      });
+    }
   }
 }
 
@@ -84,6 +128,17 @@ export async function POST(request: Request) {
     }
   }
 
+  // --- PROFIT TARGET: reads REAL, CURRENT balance directly — same
+  // source of truth drawdown already uses. Runs regardless of the
+  // balance_detection_paused flag, since that flag only guards the
+  // separate Phase-2-reset detection below, not this. ---
+  const numericBalance = Number(balance);
+  const currentProfitPercent = ((numericBalance - account.account_size) / account.account_size) * 100;
+  if (currentProfitPercent >= PROFIT_TARGET_PERCENT && challenge.status === "active") {
+    await handlePassed(serviceClient, challenge, accountLogin, currentProfitPercent);
+    return NextResponse.json({ status: "passed", currentProfitPercent });
+  }
+
   const dealId = Number(latestBalanceDealId ?? 0);
   if (
     !challenge.balance_detection_paused &&
@@ -92,8 +147,8 @@ export async function POST(request: Request) {
   ) {
     await (serviceClient.from("user_challenges") as any)
       .update({
-        phase_reset_baseline_balance: Number(balance),
-        peak_closed_balance: Number(balance),
+        phase_reset_baseline_balance: numericBalance,
+        peak_closed_balance: numericBalance,
         phase_transition_pending: false,
         last_balance_deal_id: dealId,
       })
@@ -103,7 +158,7 @@ export async function POST(request: Request) {
       serviceClient,
       challenge.user_id,
       "Phase 2 Started",
-      `Your account balance has been reset to ${Number(balance).toLocaleString()}. Phase 2 evaluation begins now — good luck!`
+      `Your account balance has been reset to ${numericBalance.toLocaleString()}. Phase 2 evaluation begins now — good luck!`
     );
 
     return NextResponse.json({ status: "phase_reset_confirmed", newBalance: balance });
@@ -112,7 +167,6 @@ export async function POST(request: Request) {
   const challengeStartDate = new Date(challenge.start_date ?? challenge.purchase_date);
 
   const currentPeak = challenge.peak_closed_balance;
-  const numericBalance = Number(balance);
   const peakClosedBalance: number =
     currentPeak === null ? numericBalance : Math.max(currentPeak, numericBalance);
   const peakNeedsUpdate = currentPeak === null || numericBalance > currentPeak;
@@ -211,6 +265,11 @@ export async function POST(request: Request) {
       }
     }
 
+    // evaluateChallenge() still runs — but now ONLY to catch hold-time
+    // warnings and inactivity breaches, both of which genuinely need
+    // the real trade list. Its own internal profit-target/drawdown
+    // outcome is deliberately ignored here — those are now handled
+    // above, directly from real balance.
     const result = evaluateChallenge({
       startingBalance: account.account_size,
       closedTrades: trades,
@@ -219,7 +278,7 @@ export async function POST(request: Request) {
       priorHoldTimeWarnings: 0,
     });
 
-    if (result.outcome === "failed") {
+    if (result.breachedRule === "min_hold_time" || result.breachedRule === "inactivity") {
       await (serviceClient.rpc as any)("complete_user_challenge", {
         p_user_challenge_id: challenge.id,
         p_outcome: "failed",
@@ -238,45 +297,6 @@ export async function POST(request: Request) {
         });
       }
       return NextResponse.json({ status: "breached", rule: result.breachedRule, ...result });
-    }
-
-    if (result.outcome === "passed") {
-      if (challenge.current_phase === 1) {
-        await (serviceClient.from("user_challenges") as any)
-          .update({ current_phase: 2, phase_transition_pending: true })
-          .eq("id", challenge.id);
-        await notifyTrader(
-          serviceClient,
-          challenge.user_id,
-          "Phase 1 Passed!",
-          `You've passed Phase 1 with ${result.currentProfitPercent.toFixed(2)}% profit. We'll reset your balance shortly to begin Phase 2 — keep the same login open.`
-        );
-        for (const adminId of await getAdminUserIds()) {
-          await createNotification({
-            userId: adminId,
-            title: "Phase 1 Passed — Manual Reset Needed",
-            message: `Account ${accountLogin} passed Phase 1. Please manually reset the balance on Exness — our system will detect it automatically.`,
-          });
-        }
-      } else {
-        await (serviceClient.from("user_challenges") as any)
-          .update({ status: "passed" })
-          .eq("id", challenge.id);
-        await notifyTrader(
-          serviceClient,
-          challenge.user_id,
-          "Challenge Passed!",
-          `Congratulations — you've completed your evaluation. Our team will process your funded account shortly.`
-        );
-        for (const adminId of await getAdminUserIds()) {
-          await createNotification({
-            userId: adminId,
-            title: "Evaluation Passed — Funded Account Needed",
-            message: `Account ${accountLogin} (user_challenge ${challenge.id}) passed Phase 2. Manual funded account issuance required.`,
-          });
-        }
-      }
-      return NextResponse.json({ status: "passed", ...result });
     }
 
     if (result.totalHoldTimeWarnings > (challenge.hold_time_warnings_notified ?? 0)) {
@@ -308,8 +328,8 @@ export async function POST(request: Request) {
       }
     }
 
-    return NextResponse.json({ status: "ok", holdTimeWarnings: result.totalHoldTimeWarnings, drawdown: floatingResult });
+    return NextResponse.json({ status: "ok", holdTimeWarnings: result.totalHoldTimeWarnings, drawdown: floatingResult, currentProfitPercent });
   }
 
-  return NextResponse.json({ status: "ok", drawdown: floatingResult });
+  return NextResponse.json({ status: "ok", drawdown: floatingResult, currentProfitPercent });
 }
