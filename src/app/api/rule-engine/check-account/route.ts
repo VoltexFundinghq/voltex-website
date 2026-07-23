@@ -9,6 +9,8 @@ import type { UserChallenge } from "@/lib/types/database";
 import type { ClosedTrade } from "@/lib/services/rule-engine/types";
 
 const DRAWDOWN_WARNING_THRESHOLD_PERCENT = 15;
+const INACTIVITY_WARNING_DAY = 4;
+const INACTIVITY_BREACH_DAY = 5;
 
 async function getTraderEmail(serviceClient: ReturnType<typeof createServiceClient>, userId: string): Promise<string | null> {
   const query = await serviceClient.from("users").select("email").eq("id", userId).single();
@@ -84,10 +86,7 @@ export async function POST(request: Request) {
     drawdownLimitPercent: challenge.drawdown_limit,
   });
 
-  // Proactive early-warning email at 15% drawdown, well before the
-  // actual 20% breach — a real differentiator, giving the trader a
-  // genuine chance to protect their account rather than being failed
-  // with no notice. Fires exactly once per challenge.
+  // Proactive drawdown warning at 15% — fires exactly once per challenge.
   if (
     !floatingResult.breached &&
     floatingResult.currentDrawdownPercent >= DRAWDOWN_WARNING_THRESHOLD_PERCENT &&
@@ -136,6 +135,32 @@ export async function POST(request: Request) {
         volume: Number(t.volume),
       }))
       .filter((t) => t.closeTime.getTime() >= challengeStartDate.getTime());
+
+    // Proactive inactivity warning at day 4 — computed separately from
+    // evaluateChallenge()'s own straight breach at day 5, so that
+    // function's tested logic and return shape stay completely
+    // untouched. Fires exactly once per challenge.
+    const lastActivityTime = Math.max(
+      challengeStartDate.getTime(),
+      ...trades.map((t) => t.openTime.getTime())
+    );
+    const daysSinceLastActivity = (Date.now() - lastActivityTime) / (1000 * 60 * 60 * 24);
+
+    if (
+      daysSinceLastActivity >= INACTIVITY_WARNING_DAY &&
+      daysSinceLastActivity < INACTIVITY_BREACH_DAY &&
+      !challenge.inactivity_warning_sent
+    ) {
+      await notifyTrader(
+        serviceClient,
+        challenge.user_id,
+        "Inactivity Warning",
+        `You haven't placed a trade in ${Math.floor(daysSinceLastActivity)} days. Your challenge will be breached if you reach 5 days of inactivity — place a trade soon to stay active.`
+      );
+      await (serviceClient.from("user_challenges") as any)
+        .update({ inactivity_warning_sent: true })
+        .eq("id", challenge.id);
+    }
 
     const result = evaluateChallenge({
       startingBalance: account.account_size,
