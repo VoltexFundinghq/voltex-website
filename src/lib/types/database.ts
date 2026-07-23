@@ -64,6 +64,7 @@ export interface UserChallenge {
   baseline_trade_id: number;
   last_balance_deal_id: number;
   phase_reset_baseline_balance: number | null;
+  payout_eligible: boolean;
   account_login: string | null;
   account_password: string | null;
   account_investor_password: string | null;

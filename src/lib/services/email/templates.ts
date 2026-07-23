@@ -28,11 +28,6 @@ export async function sendChallengePurchasedEmail(to: string, params: { challeng
   return sendEmail({ to, subject: "Your Voltex Funding Challenge Purchase", html });
 }
 
-/**
- * Deliberately sends ONLY the master (trading) password to the trader —
- * the investor (read-only) password is reserved for Voltex Funding's
- * own internal monitoring system and is never included here.
- */
 export async function sendChallengeCredentialsEmail(to: string, params: {
   challengeName: string;
   login: string;
@@ -60,4 +55,31 @@ export async function sendRuleEngineAlertEmail(to: string, params: { title: stri
     <p style="color:#ccc;line-height:1.6;">${params.message}</p>
   `);
   return sendEmail({ to, subject: params.title, html });
+}
+
+/**
+ * Sent the moment a trader passes Phase 2 and a genuinely NEW funded
+ * account has been allocated — a real, different login from the
+ * evaluation account, per the "evaluation to funded = new account"
+ * business rule.
+ */
+export async function sendFundedAccountEmail(to: string, params: {
+  accountSize: string;
+  login: string;
+  password: string;
+  server: string;
+  broker: string;
+}) {
+  const html = wrapper(`
+    <h2 style="margin:0 0 12px;">Welcome to Funded Stage!</h2>
+    <p style="color:#ccc;line-height:1.6;">Congratulations — you've completed your evaluation. Here are your new funded ${params.accountSize} account details:</p>
+    <table style="width:100%;margin-top:16px;font-size:14px;color:#fff;">
+      <tr><td style="padding:6px 0;color:#888;">Login</td><td style="padding:6px 0;text-align:right;">${params.login}</td></tr>
+      <tr><td style="padding:6px 0;color:#888;">Password</td><td style="padding:6px 0;text-align:right;">${params.password}</td></tr>
+      <tr><td style="padding:6px 0;color:#888;">Server</td><td style="padding:6px 0;text-align:right;">${params.server}</td></tr>
+      <tr><td style="padding:6px 0;color:#888;">Broker</td><td style="padding:6px 0;text-align:right;">${params.broker}</td></tr>
+    </table>
+    <p style="color:#ccc;line-height:1.6;margin-top:20px;">This account is yours to keep across every future payout cycle. Trade with discipline, and good luck!</p>
+  `);
+  return sendEmail({ to, subject: "Welcome to Funded Stage — Voltex Funding", html });
 }

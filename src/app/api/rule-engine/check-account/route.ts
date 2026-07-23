@@ -4,7 +4,7 @@ import { checkFloatingDrawdown } from "@/lib/services/rule-engine/floating-drawd
 import { evaluateChallenge } from "@/lib/services/rule-engine/evaluate";
 import { createNotification } from "@/lib/database/notifications";
 import { getAdminUserIds } from "@/lib/database/admin";
-import { sendRuleEngineAlertEmail } from "@/lib/services/email/templates";
+import { sendRuleEngineAlertEmail, sendFundedAccountEmail } from "@/lib/services/email/templates";
 import type { UserChallenge } from "@/lib/types/database";
 import type { ClosedTrade } from "@/lib/services/rule-engine/types";
 
@@ -34,11 +34,19 @@ async function notifyTrader(
   }
 }
 
+/**
+ * Phase 1 -> Phase 2: same account, just resets. Phase 2 -> Funded:
+ * genuinely NEW account allocated, per the long-standing "evaluation
+ * to funded = new account" rule. This function only ever runs for
+ * current_phase 1 or 2 — Funded-stage 10% hits are handled entirely
+ * separately, as payout eligibility, not a "pass."
+ */
 async function handlePassed(
   serviceClient: ReturnType<typeof createServiceClient>,
   challenge: UserChallenge,
   accountLogin: string,
-  currentProfitPercent: number
+  currentProfitPercent: number,
+  accountSize: number
 ) {
   if (challenge.current_phase === 1) {
     await (serviceClient.from("user_challenges") as any)
@@ -57,23 +65,82 @@ async function handlePassed(
         message: `Account ${accountLogin} passed Phase 1. Please manually reset the balance on Exness — our system will detect it automatically.`,
       });
     }
-  } else {
-    await (serviceClient.from("user_challenges") as any)
-      .update({ status: "passed" })
-      .eq("id", challenge.id);
-    await notifyTrader(
-      serviceClient,
-      challenge.user_id,
-      "Challenge Passed!",
-      `Congratulations — you've completed your evaluation. Our team will process your funded account shortly.`
-    );
+    return;
+  }
+
+  // current_phase === 2: evaluation genuinely complete. Archive this
+  // row, allocate a real, different account, and hand it over.
+  await (serviceClient.from("user_challenges") as any)
+    .update({ status: "passed" })
+    .eq("id", challenge.id);
+
+  const { data: allocation, error: allocError } = await (serviceClient.rpc as any)("allocate_trading_account", {
+    p_user_challenge_id: challenge.id, // reused only for the RPC's internal user lookup
+    p_account_size: accountSize,
+  });
+
+  if (allocError || !allocation || allocation.length === 0) {
+    console.error("Funded allocation failed or no account available:", allocError);
     for (const adminId of await getAdminUserIds()) {
       await createNotification({
         userId: adminId,
-        title: "Evaluation Passed — Funded Account Needed",
-        message: `Account ${accountLogin} (user_challenge ${challenge.id}) passed Phase 2. Manual funded account issuance required.`,
+        title: "URGENT: Funded Allocation Failed",
+        message: `Account ${accountLogin} passed Phase 2, but NO funded account could be allocated (out of inventory or an error occurred). Manual intervention needed immediately.`,
       });
     }
+    return;
+  }
+
+  const newAccount = allocation[0];
+
+  const { data: newChallenge, error: insertError } = await (serviceClient.from("user_challenges") as any)
+    .insert({
+      user_id: challenge.user_id,
+      challenge_id: challenge.challenge_id,
+      trading_account_id: newAccount.account_id,
+      status: "active",
+      current_phase: 3, // 3 = Funded
+      profit_target: challenge.profit_target,
+      drawdown_limit: challenge.drawdown_limit,
+      profit_split: challenge.profit_split,
+      start_date: new Date().toISOString(),
+      peak_closed_balance: accountSize,
+      account_login: newAccount.login,
+      account_password: newAccount.password,
+      account_investor_password: newAccount.investor_password,
+      account_server: newAccount.server,
+      account_broker: newAccount.broker,
+    })
+    .select()
+    .single();
+
+  if (insertError || !newChallenge) {
+    console.error("Failed to create funded user_challenge row:", insertError);
+    return;
+  }
+
+  const email = await getTraderEmail(serviceClient, challenge.user_id);
+  if (email) {
+    await sendFundedAccountEmail(email, {
+      accountSize: `N${accountSize.toLocaleString()}`,
+      login: newAccount.login,
+      password: newAccount.password,
+      server: newAccount.server,
+      broker: newAccount.broker,
+    });
+  }
+  await createNotification({
+    userId: challenge.user_id,
+    title: "Welcome to Funded Stage!",
+    message: `Congratulations — you've completed your evaluation. Your new funded account details have been emailed to you.`,
+  });
+
+  for (const adminId of await getAdminUserIds()) {
+    await createNotification({
+      userId: adminId,
+      title: "Trader Funded",
+      message: `Account ${accountLogin} completed evaluation. New funded account ${newAccount.login} allocated and emailed.`,
+    });
   }
 }
 
@@ -105,7 +172,7 @@ export async function POST(request: Request) {
     .eq("status", "active")
     .single();
 
-  const challenge = challengeQuery.data as UserChallenge & { balance_detection_paused?: boolean } | null;
+  const challenge = challengeQuery.data as UserChallenge & { balance_detection_paused?: boolean; payout_eligible?: boolean } | null;
   if (challengeQuery.error || !challenge) {
     return NextResponse.json({ status: "ignored", reason: "no active challenge for this account" });
   }
@@ -128,15 +195,45 @@ export async function POST(request: Request) {
     }
   }
 
-  // --- PROFIT TARGET: reads REAL, CURRENT balance directly — same
-  // source of truth drawdown already uses. Runs regardless of the
-  // balance_detection_paused flag, since that flag only guards the
-  // separate Phase-2-reset detection below, not this. ---
   const numericBalance = Number(balance);
   const currentProfitPercent = ((numericBalance - account.account_size) / account.account_size) * 100;
-  if (currentProfitPercent >= PROFIT_TARGET_PERCENT && challenge.status === "active") {
-    await handlePassed(serviceClient, challenge, accountLogin, currentProfitPercent);
+
+  // Only Phase 1/2 checks the direct-balance number as a PASS. Funded
+  // stage (current_phase === 3) treats this exact same threshold as
+  // PAYOUT ELIGIBILITY instead — never re-provisions or reassigns
+  // anything, just flags it and notifies, since trader-initiated
+  // requests aren't built yet.
+  if (challenge.current_phase !== 3 && currentProfitPercent >= PROFIT_TARGET_PERCENT && challenge.status === "active") {
+    await handlePassed(serviceClient, challenge, accountLogin, currentProfitPercent, account.account_size);
     return NextResponse.json({ status: "passed", currentProfitPercent });
+  }
+
+  if (
+    challenge.current_phase === 3 &&
+    currentProfitPercent >= PROFIT_TARGET_PERCENT &&
+    !challenge.payout_eligible
+  ) {
+    const { data: claimed } = await (serviceClient.from("user_challenges") as any)
+      .update({ payout_eligible: true })
+      .eq("id", challenge.id)
+      .eq("payout_eligible", false)
+      .select();
+
+    if (claimed && claimed.length > 0) {
+      await notifyTrader(
+        serviceClient,
+        challenge.user_id,
+        "You're Eligible for a Payout!",
+        `Your account has reached ${currentProfitPercent.toFixed(2)}% profit — you're now eligible to request a payout. Please contact support to request yours.`
+      );
+      for (const adminId of await getAdminUserIds()) {
+        await createNotification({
+          userId: adminId,
+          title: "Trader Payout-Eligible",
+          message: `Account ${accountLogin} reached ${currentProfitPercent.toFixed(2)}% profit on Funded stage — eligible for payout review.`,
+        });
+      }
+    }
   }
 
   const dealId = Number(latestBalanceDealId ?? 0);
@@ -145,21 +242,33 @@ export async function POST(request: Request) {
     dealId > 0 &&
     dealId > (challenge.last_balance_deal_id ?? 0)
   ) {
+    const isFunded = challenge.current_phase === 3;
+
     await (serviceClient.from("user_challenges") as any)
       .update({
         phase_reset_baseline_balance: numericBalance,
         peak_closed_balance: numericBalance,
         phase_transition_pending: false,
         last_balance_deal_id: dealId,
+        ...(isFunded ? { payout_eligible: false } : { current_phase: 2 }),
       })
       .eq("id", challenge.id);
 
-    await notifyTrader(
-      serviceClient,
-      challenge.user_id,
-      "Phase 2 Started",
-      `Your account balance has been reset to ${numericBalance.toLocaleString()}. Phase 2 evaluation begins now — good luck!`
-    );
+    if (isFunded) {
+      await notifyTrader(
+        serviceClient,
+        challenge.user_id,
+        "Payout Processed — Continue Trading",
+        `Your payout has been processed and your account balance reset to ${numericBalance.toLocaleString()}. Keep trading toward your next payout — good luck!`
+      );
+    } else {
+      await notifyTrader(
+        serviceClient,
+        challenge.user_id,
+        "Welcome to Phase 2!",
+        `Your account balance has been reset to ${numericBalance.toLocaleString()}. Phase 2 evaluation begins now — good luck!`
+      );
+    }
 
     return NextResponse.json({ status: "phase_reset_confirmed", newBalance: balance });
   }
@@ -265,11 +374,6 @@ export async function POST(request: Request) {
       }
     }
 
-    // evaluateChallenge() still runs — but now ONLY to catch hold-time
-    // warnings and inactivity breaches, both of which genuinely need
-    // the real trade list. Its own internal profit-target/drawdown
-    // outcome is deliberately ignored here — those are now handled
-    // above, directly from real balance.
     const result = evaluateChallenge({
       startingBalance: account.account_size,
       closedTrades: trades,
