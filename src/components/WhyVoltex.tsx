@@ -68,8 +68,8 @@ export default function WhyVoltex() {
           <div className="relative overflow-hidden rounded-[40px] border border-[#D4AF37]/25 bg-white/[0.03] px-10 py-7 text-center backdrop-blur-xl">
             <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,rgba(212,175,55,.08),transparent_70%)]" />
             <div className="relative">
-              <h3 className="text-3xl font-extrabold text-white">Built to Reward <span className="text-[#D4AF37]">Discipline</span></h3>
-              <p className="mx-auto mt-5 max-w-2xl text-zinc-400">Voltex Funding is designed to help serious traders grow through consistency, transparency, and fair evaluation standards.</p>
+              <h3 className="text-3xl font-extrabold text-white">We Warn You <span className="text-[#D4AF37]">Before You Breach</span></h3>
+              <p className="mx-auto mt-5 max-w-2xl text-zinc-400">Most prop firms fail you silently. Voltex Funding emails you the moment you're at risk — at 15% drawdown, your 2nd hold-time warning, and day 4 of inactivity — so discipline gets a second chance, not just a verdict.</p>
               <Link href="/challenges">
                 <Button className="mt-8 bg-[#D4AF37] px-8 py-4 text-base font-semibold text-black hover:bg-[#F5D573]">Get Started</Button>
               </Link>
