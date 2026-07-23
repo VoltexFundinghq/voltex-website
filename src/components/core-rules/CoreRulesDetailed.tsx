@@ -15,17 +15,23 @@ export default function CoreRulesDetailed() {
           </div>
           <h2 className="mt-6 text-2xl font-extrabold text-white md:text-3xl">Balance-Based Trailing Drawdown</h2>
           <div className="mt-5 space-y-4">
-            <p className="text-base leading-7 text-zinc-300">Your maximum drawdown trails your highest CLOSED account balance — not your floating, unrealized equity.</p>
-            <p className="text-base leading-7 text-zinc-300">Every time you close a trade that pushes your account to a new highest closed balance, your drawdown threshold recalculates upward from that new balance.</p>
-            <p className="text-base leading-7 text-zinc-300">Floating profit on open trades does not move your drawdown line. Only a closed trade that sets a new highest balance updates the threshold.</p>
-            <p className="text-base leading-7 text-zinc-300">If your balance falls after that point, your drawdown floor stays fixed at the level set by your last highest closed balance — it does not trail back downward with your balance.</p>
+            <p className="text-base leading-7 text-zinc-300">Your maximum allowed loss is a FIXED amount, calculated once from your account's starting balance — 20% of your original size.</p>
+            <p className="text-base leading-7 text-zinc-300">This fixed amount never changes, no matter how large your account grows. Every time you close a trade at a new highest balance, your floor moves up — but the WIDTH of your allowed drop stays exactly the same for the life of your account.</p>
+            <p className="text-base leading-7 text-zinc-300">Floating profit on open trades never moves your floor. Only a closed trade that sets a new highest balance shifts it — always upward, by the exact size of that new gain.</p>
             <p className="text-base leading-7 text-zinc-300">Your live balance, including any trade still open, is checked against this floor at all times — a dip to or below it is an immediate breach, even on a trade that would have gone on to recover.</p>
-            <p className="text-base leading-7 text-zinc-300">Here's the real edge: we'll email you the moment you reach 15% down — a genuine heads-up before the actual 20% limit, giving you a real chance to protect your account. Many prop firms just fail you silently; we'd rather you have the chance to course-correct first.</p>
+            <p className="text-base leading-7 text-zinc-300">We'll email you the moment you reach 15% down — a genuine heads-up before the actual 20% limit, giving you a real chance to protect your account.</p>
           </div>
           <div className="mt-7 rounded-2xl border border-[#D4AF37]/25 bg-black/40 p-6">
             <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#D4AF37]">Worked Example</p>
             <ol className="mt-4 space-y-2.5">
-              {["You start with a N500,000 account.", "You close a trade, bringing your balance to a new high of N520,000 — your drawdown threshold recalculates from N520,000.", "You open a new trade showing N530,000 in floating profit. Your drawdown floor does NOT move yet, since it's unrealized.", "You close that trade at N530,000 — a new highest closed balance. The threshold recalculates again.", "Your balance later drops to N510,000. Your drawdown floor stays anchored to the N530,000 closed high, not the current N510,000 balance."].map((step, i) => (
+              {[
+                "You start with a N500,000 account. Your fixed allowed loss is 20% of this starting amount — N100,000 — and this number never changes.",
+                "Your floor is set at N400,000 (N500,000 minus the fixed N100,000).",
+                "You close a trade, bringing your balance to a new high of N540,000. Your floor moves up to N440,000 — still N540,000 minus that same fixed N100,000, not 20% of the new N540,000.",
+                "You open a new trade. While it's still open, floating losses push your equity down to N445,000 — this is above your N440,000 floor, so no breach yet.",
+                "The trade continues moving against you. Your floating equity reaches N438,000 — below your N440,000 floor. Your challenge fails at this exact moment.",
+                "Notice your allowed loss stayed fixed at N100,000 the entire time — it never grew to N108,000 (which a percentage-of-peak model would have given at this same N540,000 peak)."
+              ].map((step, i) => (
                 <li key={i} className="flex gap-2.5 text-sm leading-6 text-zinc-400">
                   <span className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-[#D4AF37]/10 text-[10px] font-bold text-[#D4AF37]">{i + 1}</span>
                   {step}
