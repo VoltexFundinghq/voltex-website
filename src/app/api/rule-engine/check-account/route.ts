@@ -34,13 +34,6 @@ async function notifyTrader(
   }
 }
 
-/**
- * Phase 1 -> Phase 2: same account, just resets. Phase 2 -> Funded:
- * genuinely NEW account allocated, per the long-standing "evaluation
- * to funded = new account" rule. This function only ever runs for
- * current_phase 1 or 2 — Funded-stage 10% hits are handled entirely
- * separately, as payout eligibility, not a "pass."
- */
 async function handlePassed(
   serviceClient: ReturnType<typeof createServiceClient>,
   challenge: UserChallenge,
@@ -68,14 +61,12 @@ async function handlePassed(
     return;
   }
 
-  // current_phase === 2: evaluation genuinely complete. Archive this
-  // row, allocate a real, different account, and hand it over.
   await (serviceClient.from("user_challenges") as any)
     .update({ status: "passed" })
     .eq("id", challenge.id);
 
   const { data: allocation, error: allocError } = await (serviceClient.rpc as any)("allocate_trading_account", {
-    p_user_challenge_id: challenge.id, // reused only for the RPC's internal user lookup
+    p_user_challenge_id: challenge.id,
     p_account_size: accountSize,
   });
 
@@ -99,7 +90,7 @@ async function handlePassed(
       challenge_id: challenge.challenge_id,
       trading_account_id: newAccount.account_id,
       status: "active",
-      current_phase: 3, // 3 = Funded
+      current_phase: 3,
       profit_target: challenge.profit_target,
       drawdown_limit: challenge.drawdown_limit,
       profit_split: challenge.profit_split,
@@ -198,11 +189,6 @@ export async function POST(request: Request) {
   const numericBalance = Number(balance);
   const currentProfitPercent = ((numericBalance - account.account_size) / account.account_size) * 100;
 
-  // Only Phase 1/2 checks the direct-balance number as a PASS. Funded
-  // stage (current_phase === 3) treats this exact same threshold as
-  // PAYOUT ELIGIBILITY instead — never re-provisions or reassigns
-  // anything, just flags it and notifies, since trader-initiated
-  // requests aren't built yet.
   if (challenge.current_phase !== 3 && currentProfitPercent >= PROFIT_TARGET_PERCENT && challenge.status === "active") {
     await handlePassed(serviceClient, challenge, accountLogin, currentProfitPercent, account.account_size);
     return NextResponse.json({ status: "passed", currentProfitPercent });
@@ -220,6 +206,19 @@ export async function POST(request: Request) {
       .select();
 
     if (claimed && claimed.length > 0) {
+      const rawProfitAmount = numericBalance - account.account_size;
+
+      // Real, permanent record — created the instant eligibility is
+      // detected, not just a boolean flag. This is the raw profit
+      // reached at this moment; the ACTUAL approved amount (after
+      // caps/splits) is decided by the admin at approval time.
+      await (serviceClient.from("payout_requests") as any).insert({
+        user_id: challenge.user_id,
+        user_challenge_id: challenge.id,
+        amount: rawProfitAmount,
+        status: "pending",
+      });
+
       await notifyTrader(
         serviceClient,
         challenge.user_id,
@@ -230,7 +229,7 @@ export async function POST(request: Request) {
         await createNotification({
           userId: adminId,
           title: "Trader Payout-Eligible",
-          message: `Account ${accountLogin} reached ${currentProfitPercent.toFixed(2)}% profit on Funded stage — eligible for payout review.`,
+          message: `Account ${accountLogin} reached ${currentProfitPercent.toFixed(2)}% profit on Funded stage — a pending payout request has been recorded for your review.`,
         });
       }
     }

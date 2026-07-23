@@ -6,7 +6,7 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
-async function approvePayout(accountLogin, approvedAmount) {
+async function rejectPayout(accountLogin, reason) {
   const { data: challenge, error } = await supabase
     .from('user_challenges')
     .select('*')
@@ -30,26 +30,27 @@ async function approvePayout(accountLogin, approvedAmount) {
     .single();
 
   if (fetchError || !pendingRequest) {
-    console.error('No pending payout request found for this account. Nothing to approve.', fetchError?.message);
+    console.error('No pending payout request found for this account. Nothing to reject.', fetchError?.message);
     return;
   }
 
-  console.log(`Found pending request: raw profit at eligibility was N${Number(pendingRequest.amount).toLocaleString()}.`);
-  console.log(`Approving with your specified real amount: N${Number(approvedAmount).toLocaleString()} (after applying caps/splits yourself).`);
-
   const { error: updateError } = await supabase
     .from('payout_requests')
-    .update({
-      amount: approvedAmount,
-      status: 'approved',
-      processed_at: new Date().toISOString(),
-    })
+    .update({ status: 'rejected', processed_at: new Date().toISOString() })
     .eq('id', pendingRequest.id);
 
   if (updateError) {
     console.error('Failed to update payout request:', updateError.message);
     return;
   }
+
+  // No balance reset is coming for a rejected payout, so we reset
+  // eligibility directly here — otherwise it would stay stuck "true"
+  // forever with no natural event to clear it.
+  await supabase
+    .from('user_challenges')
+    .update({ payout_eligible: false })
+    .eq('id', challenge.id);
 
   const { data: userRow } = await supabase.from('users').select('email').eq('id', challenge.user_id).single();
 
@@ -63,21 +64,22 @@ async function approvePayout(accountLogin, approvedAmount) {
       body: JSON.stringify({
         from: 'Voltex Funding <support@voltexfunding.com>',
         to: userRow.email,
-        subject: 'Payout Approved!',
-        html: `<div style="background:#0a0a0a;padding:32px;font-family:Arial,sans-serif;color:#fff;"><h2>Payout Approved!</h2><p>Congratulations — your payout of N${Number(approvedAmount).toLocaleString()} has been approved. We'll process your withdrawal shortly, and reset your account balance so you can continue trading toward your next payout.</p></div>`,
+        subject: 'Payout Request Update',
+        html: `<div style="background:#0a0a0a;padding:32px;font-family:Arial,sans-serif;color:#fff;"><h2>Payout Request Update</h2><p>Your recent payout eligibility has been reviewed and was not approved at this time.${reason ? ` Reason: ${reason}` : ''} Please continue trading, and reach out to support if you have any questions.</p></div>`,
       }),
     });
     const result = await response.json();
-    console.log('Approval email sent:', result.id ? 'success' : result);
+    console.log('Rejection email sent:', result.id ? 'success' : result);
   }
 
-  console.log(`\nPayout approved and recorded. Next: actually process the withdrawal on Exness — our system will automatically detect the resulting balance reset and notify the trader to continue.`);
+  console.log(`Payout request rejected for account ${accountLogin}. Eligibility flag reset — trader can become eligible again on their next qualifying gain.`);
 }
 
-const [,, accountLogin, amount] = process.argv;
-if (!accountLogin || !amount) {
-  console.error('Usage: node scripts/approve-payout.js <accountLogin> <approvedAmount>');
+const [,, accountLogin, ...reasonParts] = process.argv;
+const reason = reasonParts.join(' ');
+if (!accountLogin) {
+  console.error('Usage: node scripts/reject-payout.js <accountLogin> [reason text]');
   process.exit(1);
 }
 
-approvePayout(accountLogin, Number(amount)).catch(console.error);
+rejectPayout(accountLogin, reason).catch(console.error);
