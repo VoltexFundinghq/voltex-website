@@ -40,6 +40,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ status: "ignored", reason: "no active challenge for this account" });
   }
 
+  const challengeStartDate = new Date(challenge.start_date ?? challenge.purchase_date);
+
   const currentPeak = challenge.peak_closed_balance;
   const numericBalance = Number(balance);
   const peakClosedBalance: number =
@@ -79,19 +81,26 @@ export async function POST(request: Request) {
   }
 
   if (Array.isArray(closedTrades)) {
-    const trades: ClosedTrade[] = closedTrades.map((t: any) => ({
-      id: String(t.id),
-      symbol: t.symbol,
-      openTime: new Date(t.openTime),
-      closeTime: new Date(t.closeTime),
-      profit: Number(t.profit),
-      volume: Number(t.volume),
-    }));
+    // CRITICAL: only trades from THIS specific challenge attempt count.
+    // Exness trade history is permanent and can never be cleared — a
+    // recycled account carries every prior trader's history forever.
+    // Without this filter, old test/prior-trader trades would
+    // silently contaminate the current, brand-new evaluation.
+    const trades: ClosedTrade[] = closedTrades
+      .map((t: any) => ({
+        id: String(t.id),
+        symbol: t.symbol,
+        openTime: new Date(t.openTime),
+        closeTime: new Date(t.closeTime),
+        profit: Number(t.profit),
+        volume: Number(t.volume),
+      }))
+      .filter((t) => t.closeTime.getTime() >= challengeStartDate.getTime());
 
     const result = evaluateChallenge({
       startingBalance: account.account_size,
       closedTrades: trades,
-      challengeStartDate: new Date(challenge.start_date ?? challenge.purchase_date),
+      challengeStartDate,
       evaluationDate: new Date(),
       priorHoldTimeWarnings: 0,
     });
