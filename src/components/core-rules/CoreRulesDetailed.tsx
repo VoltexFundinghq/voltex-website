@@ -42,7 +42,7 @@ export default function CoreRulesDetailed() {
             <p className="text-base leading-7 text-zinc-300">Every position you open must remain open for at least three minutes before it can be closed. This applies across Phase 1, Phase 2, and your funded account.</p>
             <p className="text-base leading-7 text-zinc-300">This rule exists to discourage latency arbitrage and ultra-fast execution strategies that exploit tiny price-feed delays rather than genuine market analysis — the kind of activity that has nothing to do with actual trading skill.</p>
             <p className="text-base leading-7 text-zinc-300">Closing a position before the three-minute mark may flag that trade as a rule violation, so build this into your strategy from the start rather than treating it as an afterthought.</p>
-            <p className="text-base leading-7 text-zinc-300">Up to 4 warnings are recorded for this rule — reach a 4th violation, and your challenge is breached.</p>
+            <p className="text-base leading-7 text-zinc-300">Up to 4 warnings are recorded for this rule — reach a 4th violation, and your challenge is breached. We'll email you at your 2nd warning, giving you a clear heads-up before it's too late.</p>
           </div>
         </motion.div>
 
@@ -53,6 +53,7 @@ export default function CoreRulesDetailed() {
             <p className="text-base leading-7 text-zinc-300">Your account must remain active. Place at least one trade every 5 consecutive calendar days to keep your evaluation or funded account in good standing.</p>
             <p className="text-base leading-7 text-zinc-300">This exists to ensure evaluation and funded capital is allocated to traders who are genuinely active and committed, rather than accounts sitting idle indefinitely.</p>
             <p className="text-base leading-7 text-zinc-300">If 5 consecutive calendar days pass without a trade, the inactivity rule is triggered and your account status may be affected. If you're planning an extended break from trading, contact support beforehand.</p>
+            <p className="text-base leading-7 text-zinc-300">We'll email you a warning on day 4 of inactivity — a genuine one-day heads-up before a breach on day 5, so a busy week doesn't cost you your challenge without notice.</p>
           </div>
         </motion.div>
 
