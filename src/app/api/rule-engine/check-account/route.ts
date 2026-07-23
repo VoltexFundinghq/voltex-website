@@ -8,6 +8,8 @@ import { sendRuleEngineAlertEmail } from "@/lib/services/email/templates";
 import type { UserChallenge } from "@/lib/types/database";
 import type { ClosedTrade } from "@/lib/services/rule-engine/types";
 
+const DRAWDOWN_WARNING_THRESHOLD_PERCENT = 15;
+
 async function getTraderEmail(serviceClient: ReturnType<typeof createServiceClient>, userId: string): Promise<string | null> {
   const query = await serviceClient.from("users").select("email").eq("id", userId).single();
   const data = query.data as { email: string } | null;
@@ -81,6 +83,26 @@ export async function POST(request: Request) {
     currentEquity: equity,
     drawdownLimitPercent: challenge.drawdown_limit,
   });
+
+  // Proactive early-warning email at 15% drawdown, well before the
+  // actual 20% breach — a real differentiator, giving the trader a
+  // genuine chance to protect their account rather than being failed
+  // with no notice. Fires exactly once per challenge.
+  if (
+    !floatingResult.breached &&
+    floatingResult.currentDrawdownPercent >= DRAWDOWN_WARNING_THRESHOLD_PERCENT &&
+    !challenge.drawdown_warning_sent
+  ) {
+    await notifyTrader(
+      serviceClient,
+      challenge.user_id,
+      "Drawdown Warning",
+      `Your account is currently ${floatingResult.currentDrawdownPercent.toFixed(1)}% down from your peak balance. Your challenge fails at ${challenge.drawdown_limit}% — please manage your risk carefully.`
+    );
+    await (serviceClient.from("user_challenges") as any)
+      .update({ drawdown_warning_sent: true })
+      .eq("id", challenge.id);
+  }
 
   if (floatingResult.breached) {
     await (serviceClient.rpc as any)("complete_user_challenge", {
