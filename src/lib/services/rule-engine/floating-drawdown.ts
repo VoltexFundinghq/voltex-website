@@ -1,37 +1,39 @@
 export interface FloatingDrawdownCheck {
-  peakClosedBalance: number; // still based on highest CLOSED balance — unchanged
-  currentEquity: number;     // closed balance + floating P&L of all currently open positions
+  peakClosedBalance: number; // still trails upward on every new closed-trade high
+  currentEquity: number;     // closed balance + floating P&L of open positions
   drawdownLimitPercent: number;
+  startingBalance: number;   // the account's ORIGINAL size — used to compute a FIXED allowed-loss amount, calculated once
 }
 
 export interface FloatingDrawdownResult {
   breached: boolean;
   drawdownFloor: number;
   currentDrawdownPercent: number;
+  fixedAllowedLossAmount: number;
 }
 
 /**
- * Checks LIVE, FLOATING equity against the drawdown floor — this is
- * intentionally separate from evaluateChallenge()'s closed-balance
- * logic. Confirmed business decision: even a floating dip that later
- * recovers and closes in profit counts as an immediate breach the
- * moment it crosses the floor. The peak itself still only ever moves
- * on CLOSED balance — only the live/current side of the comparison
- * now includes floating P&L.
+ * Checks LIVE, FLOATING equity against the drawdown floor.
  *
- * This must be called frequently against live account data (polling)
- * to have a real chance of catching a fast dip — a gap between polls
- * could theoretically miss a very brief spike below the floor that
- * recovers before the next check.
+ * IMPORTANT (confirmed business rule): the ALLOWED LOSS is a FIXED
+ * dollar amount, calculated once from the account's ORIGINAL starting
+ * balance — e.g. 500,000 x 20% = 100,000, forever. This amount never
+ * grows even as the peak climbs. The floor still moves UP as the peak
+ * rises (floor = peak - fixedAmount), but the WIDTH of the allowed
+ * drop stays permanently fixed — NOT a percentage of the current,
+ * growing peak. Confirmed directly against real numbers: at a peak of
+ * 540,000 on a 500,000 account, the floor is 440,000 (540,000 -
+ * 100,000), not 432,000 (540,000 x 0.80).
  */
 export function checkFloatingDrawdown(input: FloatingDrawdownCheck): FloatingDrawdownResult {
-  const { peakClosedBalance, currentEquity, drawdownLimitPercent } = input;
+  const { peakClosedBalance, currentEquity, drawdownLimitPercent, startingBalance } = input;
 
-  const drawdownFloor = peakClosedBalance * (1 - drawdownLimitPercent / 100);
+  const fixedAllowedLossAmount = startingBalance * (drawdownLimitPercent / 100);
+  const drawdownFloor = peakClosedBalance - fixedAllowedLossAmount;
   const breached = currentEquity <= drawdownFloor;
   const currentDrawdownPercent = peakClosedBalance > 0
     ? Math.max(0, ((peakClosedBalance - currentEquity) / peakClosedBalance) * 100)
     : 0;
 
-  return { breached, drawdownFloor, currentDrawdownPercent };
+  return { breached, drawdownFloor, currentDrawdownPercent, fixedAllowedLossAmount };
 }

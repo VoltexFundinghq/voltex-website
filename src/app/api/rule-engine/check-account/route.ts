@@ -84,11 +84,6 @@ export async function POST(request: Request) {
     }
   }
 
-  // Balance-reset detection — completely skipped while paused. This
-  // lets us test the ORIGINAL, already-proven evaluateChallenge()
-  // logic (10% profit target, drawdown) in isolation, without any risk
-  // of a real or leftover Balance-type deal being misread as a real
-  // phase transition during testing.
   const dealId = Number(latestBalanceDealId ?? 0);
   if (
     !challenge.balance_detection_paused &&
@@ -132,6 +127,7 @@ export async function POST(request: Request) {
     peakClosedBalance,
     currentEquity: equity,
     drawdownLimitPercent: challenge.drawdown_limit,
+    startingBalance: account.account_size,
   });
 
   if (
@@ -150,7 +146,7 @@ export async function POST(request: Request) {
         serviceClient,
         challenge.user_id,
         "Drawdown Warning",
-        `Your account is currently ${floatingResult.currentDrawdownPercent.toFixed(1)}% down from your peak balance. Your challenge fails at ${challenge.drawdown_limit}% — please manage your risk carefully.`
+        `Your account is currently ${floatingResult.currentDrawdownPercent.toFixed(1)}% down from your peak balance. Your challenge fails if you lose ${floatingResult.fixedAllowedLossAmount.toLocaleString()} total from your peak — please manage your risk carefully.`
       );
     }
   }
@@ -164,7 +160,7 @@ export async function POST(request: Request) {
       serviceClient,
       challenge.user_id,
       "Challenge Failed — Drawdown Breach",
-      `Your account breached the ${challenge.drawdown_limit}% drawdown limit. Equity ${equity} fell below the floor of ${floatingResult.drawdownFloor.toFixed(2)}.`
+      `Your account breached the drawdown limit. Equity ${equity} fell below the floor of ${floatingResult.drawdownFloor.toFixed(2)}.`
     );
     for (const adminId of await getAdminUserIds()) {
       await createNotification({

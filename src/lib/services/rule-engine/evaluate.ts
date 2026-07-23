@@ -3,7 +3,7 @@ import type { ClosedTrade, RuleEngineInput, RuleEngineResult, RuleViolation } fr
 const PROFIT_TARGET_PERCENT = 10;
 const DRAWDOWN_LIMIT_PERCENT = 20;
 const MIN_HOLD_TIME_MINUTES = 3;
-const MAX_HOLD_TIME_WARNINGS = 3; // the 4th violation is what actually fails the account (tightened from 5 to 4 total occurrences)
+const MAX_HOLD_TIME_WARNINGS = 3;
 const INACTIVITY_LIMIT_DAYS = 5;
 
 function minutesBetween(a: Date, b: Date): number {
@@ -15,25 +15,13 @@ function daysBetween(a: Date, b: Date): number {
 }
 
 /**
- * Evaluates a challenge against Voltex Funding's core, self-contained
- * rules. Enforcement policy per rule (confirmed with the business):
- *   - Trailing Drawdown: immediate fail, no warnings.
- *   - 5-Day Inactivity: immediate fail, no warnings.
- *   - Minimum Hold Time: warning-based — 3 warnings allowed, the 4th
- *     violation fails the account (tightened from the original 4/5 split).
- *     A specific "second warning" email is sent to the trader at
- *     exactly the 2nd occurrence, giving a clear countdown before
- *     the 4th ends the challenge.
+ * Evaluates a challenge against Voltex Funding's core rules.
  *
- * Every trade's real P&L is ALWAYS applied to the balance, even if
- * that exact trade is the one that triggers a fatal violation.
- *
- * Deliberately excludes News Trading and Weekend Crypto — both need
- * infrastructure (calendar data, a separate persistent counter) not
- * yet built.
- *
- * Pure function: same input always produces the same output, zero
- * side effects — fully testable without a real MT5 connection.
+ * IMPORTANT (confirmed business rule): drawdown is a FIXED dollar
+ * amount, calculated once from startingBalance — it never grows even
+ * as the peak rises. Floor = peak - (startingBalance x 20%), NOT
+ * peak x 80%. The floor still moves up with the peak; only the WIDTH
+ * of the allowed drop stays permanently fixed.
  */
 export function evaluateChallenge(input: RuleEngineInput): RuleEngineResult {
   const { startingBalance, closedTrades, challengeStartDate, evaluationDate, priorHoldTimeWarnings } = input;
@@ -44,6 +32,8 @@ export function evaluateChallenge(input: RuleEngineInput): RuleEngineResult {
 
   let balance = startingBalance;
   let peak = startingBalance;
+
+  const fixedAllowedLossAmount = startingBalance * (DRAWDOWN_LIMIT_PERCENT / 100);
 
   for (const trade of closedTrades) {
     if (breachedRule) break;
@@ -61,7 +51,7 @@ export function evaluateChallenge(input: RuleEngineInput): RuleEngineResult {
       violations.push({
         rule: "min_hold_time",
         message: isFatal
-          ? `Trade ${trade.id} on ${trade.symbol} held ${holdMinutes.toFixed(1)} min — this is occurrence #${holdTimeWarnings}, exceeding the ${MAX_HOLD_TIME_WARNINGS}-warning limit. Account failed.`
+          ? `Trade ${trade.id} on ${trade.symbol} held ${holdMinutes.toFixed(1)} min — occurrence #${holdTimeWarnings}, exceeding the ${MAX_HOLD_TIME_WARNINGS}-warning limit. Account failed.`
           : `Trade ${trade.id} on ${trade.symbol} held ${holdMinutes.toFixed(1)} min, below the ${MIN_HOLD_TIME_MINUTES}-minute minimum. Warning ${holdTimeWarnings}/${MAX_HOLD_TIME_WARNINGS}.`,
         tradeId: trade.id,
         profit: trade.profit,
@@ -75,11 +65,11 @@ export function evaluateChallenge(input: RuleEngineInput): RuleEngineResult {
 
     if (breachedRule) break;
 
-    const drawdownFloor = peak * (1 - DRAWDOWN_LIMIT_PERCENT / 100);
+    const drawdownFloor = peak - fixedAllowedLossAmount;
     if (balance <= drawdownFloor) {
       violations.push({
         rule: "trailing_drawdown",
-        message: `Balance of ${balance.toFixed(2)} fell to or below the drawdown floor of ${drawdownFloor.toFixed(2)} (${DRAWDOWN_LIMIT_PERCENT}% below peak of ${peak.toFixed(2)}).`,
+        message: `Balance of ${balance.toFixed(2)} fell to or below the drawdown floor of ${drawdownFloor.toFixed(2)} (fixed allowed loss of ${fixedAllowedLossAmount.toFixed(2)} below peak of ${peak.toFixed(2)}).`,
         tradeId: trade.id,
         profit: trade.profit,
         detectedAt: trade.closeTime,
