@@ -3,6 +3,7 @@ import { createServiceClient } from "@/lib/supabase/service";
 import { checkFloatingDrawdown } from "@/lib/services/rule-engine/floating-drawdown";
 import { evaluateChallenge } from "@/lib/services/rule-engine/evaluate";
 import { checkWeekendHolding } from "@/lib/services/rule-engine/weekend-holding";
+import { checkNewsTrading } from "@/lib/services/rule-engine/news-trading";
 import { runCorrelationCheck } from "@/lib/services/rule-engine/correlation-service";
 import { createNotification } from "@/lib/database/notifications";
 import { getAdminUserIds } from "@/lib/database/admin";
@@ -163,6 +164,10 @@ interface ActiveChallengeRow {
   account_login: string;
 }
 
+interface NewsEventRow {
+  event_time: string;
+}
+
 async function runCorrelationPass(serviceClient: ReturnType<typeof createServiceClient>) {
   const cutoff = new Date(Date.now() - CORRELATION_LOOKBACK_MINUTES * 60 * 1000).toISOString();
 
@@ -266,6 +271,60 @@ export async function POST(request: Request) {
     await runCorrelationPass(serviceClient);
   } catch (err) {
     console.error("Correlation check failed (non-fatal, continuing):", err);
+  }
+
+  // --- News Trading: straight breach, no warning stage. A trade
+  // opened within 4 minutes before a high-impact release must stay
+  // open at least 4 minutes after it — checked against events fetched
+  // daily from ForexFactory (via JBlanked's News API). ---
+  if (Array.isArray(closedTrades) && closedTrades.length > 0) {
+    const challengeStartDateForNews = new Date(challenge.start_date ?? challenge.purchase_date);
+    const relevantTrades = closedTrades
+      .map((t: any) => ({
+        id: String(t.id),
+        openTime: new Date(t.openTime),
+        closeTime: new Date(t.closeTime),
+      }))
+      .filter((t) => t.closeTime.getTime() >= challengeStartDateForNews.getTime());
+
+    if (relevantTrades.length > 0) {
+      const earliestOpen = new Date(Math.min(...relevantTrades.map((t) => t.openTime.getTime())));
+      const latestClose = new Date(Math.max(...relevantTrades.map((t) => t.closeTime.getTime())));
+
+      const newsEventsQuery = await serviceClient
+        .from("news_events")
+        .select("event_time")
+        .gte("event_time", new Date(earliestOpen.getTime() - 10 * 60 * 1000).toISOString())
+        .lte("event_time", new Date(latestClose.getTime() + 10 * 60 * 1000).toISOString());
+
+      const newsEventRows = newsEventsQuery.data as NewsEventRow[] | null;
+
+      if (newsEventRows && newsEventRows.length > 0) {
+        const highImpactEvents = newsEventRows.map((r) => ({ eventTime: new Date(r.event_time) }));
+        const newsViolations = checkNewsTrading(relevantTrades, highImpactEvents);
+
+        if (newsViolations.length > 0) {
+          await (serviceClient.rpc as any)("complete_user_challenge", {
+            p_user_challenge_id: challenge.id,
+            p_outcome: "failed",
+          });
+          await notifyTrader(
+            serviceClient,
+            challenge.user_id,
+            "Challenge Failed — News Trading Violation",
+            `Your challenge was failed: ${newsViolations[0].message}`
+          );
+          for (const adminId of await getAdminUserIds()) {
+            await createNotification({
+              userId: adminId,
+              title: "News Trading Violation",
+              message: `Account ${accountLogin} failed — news trading rule violated on trade ${newsViolations[0].tradeId}.`,
+            });
+          }
+          return NextResponse.json({ status: "breached", rule: "news_trading", violations: newsViolations });
+        }
+      }
+    }
   }
 
   // --- Weekend Holding: BTC/USD and ETH/USD exempt; every other
