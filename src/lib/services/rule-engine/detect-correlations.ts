@@ -1,21 +1,21 @@
 import type { AccountTradeSet, CorrelationFlag, CorrelationTrade } from "./correlation-types";
 
-const TIME_WINDOW_SECONDS = 60; // trades opened within this window of each other are considered matching timing
-const SIZE_SIMILARITY_TOLERANCE = 0.3; // volumes within 30% of each other count as "similar size"
+const TIME_WINDOW_SECONDS = 60;
+const SIZE_SIMILARITY_TOLERANCE = 0.3;
 
 /**
- * Flags POSSIBLE copy trading or reverse hedging between DIFFERENT
- * traders' accounts. Deliberately never auto-fails anything — every
- * result here is a candidate for manual review, not a verdict.
+ * Flags POSSIBLE copy trading or reverse hedging between accounts.
+ * Deliberately never auto-fails anything — every result here is a
+ * candidate for manual review, not a verdict.
  *
- * Same-user accounts are always skipped entirely, since copy trading
- * across your OWN multiple accounts is explicitly allowed.
+ * IMPORTANT: same-user accounts are only skipped for SAME-DIRECTION
+ * matches (legitimate copy trading, explicitly allowed across a
+ * trader's own multiple accounts). OPPOSITE-direction matches between
+ * a trader's own accounts are still flagged as reverse hedging —
+ * per published rules, this is prohibited with NO same-user
+ * exception, unlike copy trading.
  *
- * These thresholds (60-second window, 30% size tolerance) are a
- * starting point, not a scientifically precise line — heavily-traded
- * symbols like EURUSD or XAUUSD will produce coincidental matches
- * between genuinely unrelated traders. That's exactly why this flags
- * for review instead of failing anything automatically.
+ * Cross-user matches are flagged in both directions, same as before.
  */
 export function detectCrossAccountCorrelations(accounts: AccountTradeSet[]): CorrelationFlag[] {
   const flags: CorrelationFlag[] = [];
@@ -25,7 +25,7 @@ export function detectCrossAccountCorrelations(accounts: AccountTradeSet[]): Cor
       const accountA = accounts[i];
       const accountB = accounts[j];
 
-      if (accountA.userId === accountB.userId) continue; // same trader — allowed, skip entirely
+      const isSameUser = accountA.userId === accountB.userId;
 
       for (const tradeA of accountA.trades) {
         for (const tradeB of accountB.trades) {
@@ -40,6 +40,14 @@ export function detectCrossAccountCorrelations(accounts: AccountTradeSet[]): Cor
           if (!sizesAreSimilar) continue;
 
           const sameDirection = tradeA.direction === tradeB.direction;
+
+          // Same user, same direction = legitimate copy trading across
+          // their own accounts — explicitly allowed, skip entirely.
+          if (isSameUser && sameDirection) continue;
+
+          // Same user, OPPOSITE direction = reverse hedging — still
+          // flagged even between a trader's own accounts, since this
+          // specific practice has no same-user exception.
 
           flags.push({
             correlationType: sameDirection ? "copy_trading" : "reverse_hedging",

@@ -143,6 +143,8 @@ interface RecordedTradeRow {
   trade_id: string;
   symbol: string;
   profit: number;
+  direction: string | null;
+  volume: number | null;
   open_time: string;
   close_time: string;
 }
@@ -158,7 +160,7 @@ async function runCorrelationPass(serviceClient: ReturnType<typeof createService
 
   const recentTradesQuery = await serviceClient
     .from("recorded_trades")
-    .select("user_challenge_id, trade_id, symbol, profit, open_time, close_time")
+    .select("user_challenge_id, trade_id, symbol, profit, direction, volume, open_time, close_time")
     .gte("close_time", cutoff);
 
   const recentTrades = recentTradesQuery.data as RecordedTradeRow[] | null;
@@ -187,9 +189,9 @@ async function runCorrelationPass(serviceClient: ReturnType<typeof createService
     grouped.get(t.user_challenge_id)!.trades.push({
       id: t.trade_id,
       symbol: t.symbol,
-      direction: "buy",
+      direction: (t.direction === "sell" ? "sell" : "buy"),
       openTime: new Date(t.open_time),
-      volume: 1,
+      volume: t.volume ?? 0,
     });
   }
 
@@ -241,6 +243,8 @@ export async function POST(request: Request) {
             trade_id: String(t.id),
             symbol: t.symbol,
             profit: Number(t.profit),
+            direction: t.direction ?? null,
+            volume: t.volume !== undefined ? Number(t.volume) : null,
             phase: challenge.current_phase,
             open_time: t.openTime,
             close_time: t.closeTime,
