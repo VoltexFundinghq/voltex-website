@@ -62,7 +62,7 @@ export interface UserChallenge {
   drawdown_warning_sent: boolean;
   inactivity_warning_sent: boolean;
   baseline_trade_id: number;
-  last_balance_deal_id: number;
+  last_balance_deal_id: number | null;
   phase_reset_baseline_balance: number | null;
   payout_eligible: boolean;
   account_login: string | null;

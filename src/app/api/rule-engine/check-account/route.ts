@@ -273,10 +273,7 @@ export async function POST(request: Request) {
     console.error("Correlation check failed (non-fatal, continuing):", err);
   }
 
-  // --- News Trading: straight breach, no warning stage. A trade
-  // opened within 4 minutes before a high-impact release must stay
-  // open at least 4 minutes after it — checked against events fetched
-  // daily from ForexFactory (via JBlanked's News API). ---
+  // --- News Trading: straight breach, no warning stage. ---
   if (Array.isArray(closedTrades) && closedTrades.length > 0) {
     const challengeStartDateForNews = new Date(challenge.start_date ?? challenge.purchase_date);
     const relevantTrades = closedTrades
@@ -327,12 +324,7 @@ export async function POST(request: Request) {
     }
   }
 
-  // --- Weekend Holding: BTC/USD and ETH/USD exempt; every other
-  // instrument still open during the weekend window is a violation.
-  // 1st occurrence = warning email, 2nd = breach. Each violation is
-  // tied to a specific position's ticket number, so one held-open
-  // position only ever counts once, no matter how many check-ins
-  // happen while it stays open. ---
+  // --- Weekend Holding ---
   if (Array.isArray(openPositions) && openPositions.length > 0) {
     const weekendResult = checkWeekendHolding({
       openPositions: openPositions.map((p: any) => ({
@@ -434,11 +426,27 @@ export async function POST(request: Request) {
     }
   }
 
+  // --- CORRECTED balance-reset detection: distinguishes "never
+  // checked before" (silently record baseline, NOT a reset) from a
+  // GENUINELY new deal appearing after a real baseline already
+  // exists (an actual reset). Fixes the bug where a brand-new
+  // account's own genesis funding deal was mistaken for a reset. ---
   const dealId = Number(latestBalanceDealId ?? 0);
-  if (
+  const hasEstablishedBaseline = challenge.last_balance_deal_id !== null && challenge.last_balance_deal_id !== undefined;
+
+  if (!hasEstablishedBaseline) {
+    if (dealId > 0) {
+      await (serviceClient.from("user_challenges") as any)
+        .update({ last_balance_deal_id: dealId })
+        .eq("id", challenge.id);
+    }
+    // Deliberately no notification, no phase change — this is just
+    // establishing where this account's history "starts" from our
+    // perspective, not a real event happening right now.
+  } else if (
     !challenge.balance_detection_paused &&
     dealId > 0 &&
-    dealId > (challenge.last_balance_deal_id ?? 0)
+    dealId > (challenge.last_balance_deal_id as number)
   ) {
     const isFunded = challenge.current_phase === 3;
 
