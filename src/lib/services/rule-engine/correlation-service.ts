@@ -4,6 +4,18 @@ import { getAdminUserIds } from "@/lib/database/admin";
 import { detectCrossAccountCorrelations } from "./detect-correlations";
 import type { AccountTradeSet } from "./correlation-types";
 
+/**
+ * Runs correlation detection across all provided accounts, persists any
+ * NEW flags (the trade_a_id/trade_b_id unique constraint means
+ * re-running against the same data never creates duplicates), and
+ * notifies every admin that a review is waiting. Never touches
+ * challenge status — purely observational until a human reviews it.
+ *
+ * Runs on EVERY poller check-in, not batched — an account can breach
+ * and drop out of the active pool at any moment, so a delayed/batched
+ * check risks missing a real violation entirely if it happens between
+ * scheduled runs.
+ */
 export async function runCorrelationCheck(accounts: AccountTradeSet[]): Promise<number> {
   const flags = detectCrossAccountCorrelations(accounts);
   if (flags.length === 0) return 0;
@@ -19,6 +31,8 @@ export async function runCorrelationCheck(accounts: AccountTradeSet[]): Promise<
       trade_a_id: flag.tradeAId,
       trade_b_id: flag.tradeBId,
       symbol: flag.symbol,
+      trade_a_symbol: flag.symbol,
+      trade_b_symbol: flag.symbol,
       time_gap_seconds: flag.timeGapSeconds,
       volume_a: flag.volumeA,
       volume_b: flag.volumeB,

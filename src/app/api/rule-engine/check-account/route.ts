@@ -2,16 +2,19 @@ import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import { checkFloatingDrawdown } from "@/lib/services/rule-engine/floating-drawdown";
 import { evaluateChallenge } from "@/lib/services/rule-engine/evaluate";
+import { runCorrelationCheck } from "@/lib/services/rule-engine/correlation-service";
 import { createNotification } from "@/lib/database/notifications";
 import { getAdminUserIds } from "@/lib/database/admin";
 import { sendRuleEngineAlertEmail, sendFundedAccountEmail } from "@/lib/services/email/templates";
 import type { UserChallenge } from "@/lib/types/database";
 import type { ClosedTrade } from "@/lib/services/rule-engine/types";
+import type { AccountTradeSet } from "@/lib/services/rule-engine/correlation-types";
 
 const DRAWDOWN_WARNING_THRESHOLD_PERCENT = 15;
 const INACTIVITY_WARNING_DAY = 4;
 const INACTIVITY_BREACH_DAY = 5;
 const PROFIT_TARGET_PERCENT = 10;
+const CORRELATION_LOOKBACK_MINUTES = 5;
 
 async function getTraderEmail(serviceClient: ReturnType<typeof createServiceClient>, userId: string): Promise<string | null> {
   const query = await serviceClient.from("users").select("email").eq("id", userId).single();
@@ -135,6 +138,67 @@ async function handlePassed(
   }
 }
 
+interface RecordedTradeRow {
+  user_challenge_id: string;
+  trade_id: string;
+  symbol: string;
+  profit: number;
+  open_time: string;
+  close_time: string;
+}
+
+interface ActiveChallengeRow {
+  id: string;
+  user_id: string;
+  account_login: string;
+}
+
+async function runCorrelationPass(serviceClient: ReturnType<typeof createServiceClient>) {
+  const cutoff = new Date(Date.now() - CORRELATION_LOOKBACK_MINUTES * 60 * 1000).toISOString();
+
+  const recentTradesQuery = await serviceClient
+    .from("recorded_trades")
+    .select("user_challenge_id, trade_id, symbol, profit, open_time, close_time")
+    .gte("close_time", cutoff);
+
+  const recentTrades = recentTradesQuery.data as RecordedTradeRow[] | null;
+  if (!recentTrades || recentTrades.length === 0) return;
+
+  const activeChallengesQuery = await serviceClient
+    .from("user_challenges")
+    .select("id, user_id, account_login")
+    .eq("status", "active");
+
+  const activeChallenges = activeChallengesQuery.data as ActiveChallengeRow[] | null;
+  if (!activeChallenges) return;
+
+  const challengeToUser = new Map(
+    activeChallenges.map((c) => [c.id, { userId: c.user_id, login: c.account_login }])
+  );
+
+  const grouped = new Map<string, AccountTradeSet>();
+  for (const t of recentTrades) {
+    const info = challengeToUser.get(t.user_challenge_id);
+    if (!info) continue;
+
+    if (!grouped.has(t.user_challenge_id)) {
+      grouped.set(t.user_challenge_id, { userId: info.userId, accountLogin: info.login, trades: [] });
+    }
+    grouped.get(t.user_challenge_id)!.trades.push({
+      id: t.trade_id,
+      symbol: t.symbol,
+      direction: "buy",
+      openTime: new Date(t.open_time),
+      volume: 1,
+    });
+  }
+
+  const accountSets = Array.from(grouped.values());
+  if (accountSets.length < 2) return;
+
+  await runCorrelationCheck(accountSets);
+}
+
 export async function POST(request: Request) {
   const body = await request.json();
   const { accountLogin, balance, equity, closedTrades, latestBalanceDealId } = body;
@@ -186,6 +250,12 @@ export async function POST(request: Request) {
     }
   }
 
+  try {
+    await runCorrelationPass(serviceClient);
+  } catch (err) {
+    console.error("Correlation check failed (non-fatal, continuing):", err);
+  }
+
   const numericBalance = Number(balance);
   const currentProfitPercent = ((numericBalance - account.account_size) / account.account_size) * 100;
 
@@ -208,10 +278,6 @@ export async function POST(request: Request) {
     if (claimed && claimed.length > 0) {
       const rawProfitAmount = numericBalance - account.account_size;
 
-      // Real, permanent record — created the instant eligibility is
-      // detected, not just a boolean flag. This is the raw profit
-      // reached at this moment; the ACTUAL approved amount (after
-      // caps/splits) is decided by the admin at approval time.
       await (serviceClient.from("payout_requests") as any).insert({
         user_id: challenge.user_id,
         user_challenge_id: challenge.id,
