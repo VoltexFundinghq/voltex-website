@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import { checkFloatingDrawdown } from "@/lib/services/rule-engine/floating-drawdown";
 import { evaluateChallenge } from "@/lib/services/rule-engine/evaluate";
+import { checkWeekendHolding } from "@/lib/services/rule-engine/weekend-holding";
 import { runCorrelationCheck } from "@/lib/services/rule-engine/correlation-service";
 import { createNotification } from "@/lib/database/notifications";
 import { getAdminUserIds } from "@/lib/database/admin";
@@ -15,6 +16,13 @@ const INACTIVITY_WARNING_DAY = 4;
 const INACTIVITY_BREACH_DAY = 5;
 const PROFIT_TARGET_PERCENT = 10;
 const CORRELATION_LOOKBACK_MINUTES = 5;
+
+type ExtendedChallenge = UserChallenge & {
+  balance_detection_paused?: boolean;
+  payout_eligible?: boolean;
+  weekend_hold_warnings?: number;
+  weekend_flagged_tickets?: string[];
+};
 
 async function getTraderEmail(serviceClient: ReturnType<typeof createServiceClient>, userId: string): Promise<string | null> {
   const query = await serviceClient.from("users").select("email").eq("id", userId).single();
@@ -203,7 +211,7 @@ async function runCorrelationPass(serviceClient: ReturnType<typeof createService
 
 export async function POST(request: Request) {
   const body = await request.json();
-  const { accountLogin, balance, equity, closedTrades, latestBalanceDealId } = body;
+  const { accountLogin, balance, equity, closedTrades, latestBalanceDealId, openPositions } = body;
 
   if (!accountLogin || balance === undefined || equity === undefined) {
     return NextResponse.json({ error: "Missing accountLogin, balance, or equity" }, { status: 400 });
@@ -229,7 +237,7 @@ export async function POST(request: Request) {
     .eq("status", "active")
     .single();
 
-  const challenge = challengeQuery.data as UserChallenge & { balance_detection_paused?: boolean; payout_eligible?: boolean } | null;
+  const challenge = challengeQuery.data as ExtendedChallenge | null;
   if (challengeQuery.error || !challenge) {
     return NextResponse.json({ status: "ignored", reason: "no active challenge for this account" });
   }
@@ -258,6 +266,68 @@ export async function POST(request: Request) {
     await runCorrelationPass(serviceClient);
   } catch (err) {
     console.error("Correlation check failed (non-fatal, continuing):", err);
+  }
+
+  // --- Weekend Holding: BTC/USD and ETH/USD exempt; every other
+  // instrument still open during the weekend window is a violation.
+  // 1st occurrence = warning email, 2nd = breach. Each violation is
+  // tied to a specific position's ticket number, so one held-open
+  // position only ever counts once, no matter how many check-ins
+  // happen while it stays open. ---
+  if (Array.isArray(openPositions) && openPositions.length > 0) {
+    const weekendResult = checkWeekendHolding({
+      openPositions: openPositions.map((p: any) => ({
+        ticket: String(p.ticket),
+        symbol: p.symbol,
+        openTime: new Date(p.openTime),
+      })),
+      currentTime: new Date(),
+      alreadyFlaggedTickets: challenge.weekend_flagged_tickets ?? [],
+      priorWeekendWarnings: challenge.weekend_hold_warnings ?? 0,
+    });
+
+    if (weekendResult.hasNewViolations) {
+      if (weekendResult.breached) {
+        await (serviceClient.rpc as any)("complete_user_challenge", {
+          p_user_challenge_id: challenge.id,
+          p_outcome: "failed",
+        });
+        await notifyTrader(
+          serviceClient,
+          challenge.user_id,
+          "Challenge Failed — Weekend Holding Violation",
+          `Your account was failed for holding a position open across the weekend on ${weekendResult.violatingSymbols.join(", ")} — this is your 2nd occurrence of this rule.`
+        );
+        for (const adminId of await getAdminUserIds()) {
+          await createNotification({
+            userId: adminId,
+            title: "Weekend Holding Breach",
+            message: `Account ${accountLogin} failed — 2nd weekend-holding violation on ${weekendResult.violatingSymbols.join(", ")}.`,
+          });
+        }
+        return NextResponse.json({ status: "breached", rule: "weekend_holding", ...weekendResult });
+      } else {
+        await (serviceClient.from("user_challenges") as any)
+          .update({
+            weekend_hold_warnings: weekendResult.newWarningCount,
+            weekend_flagged_tickets: weekendResult.allFlaggedTickets,
+          })
+          .eq("id", challenge.id);
+        await notifyTrader(
+          serviceClient,
+          challenge.user_id,
+          "Weekend Holding Warning",
+          `You held a position open across the weekend on ${weekendResult.violatingSymbols.join(", ")}. This is a warning — one more occurrence will breach your challenge. BTC/USD and ETH/USD are exempt from this rule.`
+        );
+        for (const adminId of await getAdminUserIds()) {
+          await createNotification({
+            userId: adminId,
+            title: "Weekend Holding Warning Issued",
+            message: `Account ${accountLogin} received a weekend-holding warning on ${weekendResult.violatingSymbols.join(", ")}.`,
+          });
+        }
+      }
+    }
   }
 
   const numericBalance = Number(balance);
