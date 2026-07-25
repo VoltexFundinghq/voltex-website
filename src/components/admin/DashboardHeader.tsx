@@ -1,0 +1,49 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { RefreshCw } from "lucide-react";
+
+export default function DashboardHeader() {
+  const router = useRouter();
+  const [now, setNow] = useState<Date | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  useEffect(() => {
+    setNow(new Date());
+    const interval = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  function handleRefresh() {
+    setIsRefreshing(true);
+    router.refresh();
+    setTimeout(() => setIsRefreshing(false), 600);
+  }
+
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 px-4 py-5 pl-16 sm:px-8 sm:pl-8 lg:pl-8">
+      <div>
+        <h1 className="text-xl font-bold text-white sm:text-2xl">Welcome back, Admin</h1>
+        <p className="mt-0.5 text-xs text-zinc-500 sm:text-sm">
+          {now ? now.toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" }) : "—"}
+          {" · "}
+          {now ? now.toLocaleTimeString() : "—"}
+        </p>
+      </div>
+      <div className="flex items-center gap-3">
+        <div className="text-right">
+          <p className="text-[10px] uppercase tracking-wide text-zinc-600">Last synced</p>
+          <p className="font-mono text-xs text-zinc-400">{now ? now.toLocaleTimeString() : "—"}</p>
+        </div>
+        <button
+          onClick={handleRefresh}
+          className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg border border-white/10 text-zinc-400 transition-colors hover:bg-white/5 hover:text-white"
+          title="Refresh"
+        >
+          <RefreshCw className={`h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`} strokeWidth={1.75} />
+        </button>
+      </div>
+    </div>
+  );
+}
