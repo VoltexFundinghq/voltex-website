@@ -1,6 +1,6 @@
 import { requireAdmin } from "@/lib/auth/session";
 import { createServiceClient } from "@/lib/supabase/service";
-import Link from "next/link";
+import AdminSidebar from "@/components/admin/AdminSidebar";
 import {
   LayoutDashboard, Users, Receipt, Activity, CheckCircle2, XCircle, Trophy,
   Package, ListChecks, Server, CreditCard, TrendingUp, ArrowLeftRight, Banknote,
@@ -17,15 +17,6 @@ async function getBadgeCounts() {
     payoutRequests: payouts.count ?? 0,
     manualReviews: reviews.count ?? 0,
   };
-}
-
-function Badge({ count }: { count: number }) {
-  if (count === 0) return null;
-  return (
-    <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-[#D4AF37] px-1.5 text-[11px] font-bold text-black">
-      {count > 99 ? "99+" : count}
-    </span>
-  );
 }
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
@@ -86,38 +77,8 @@ export default async function AdminLayout({ children }: { children: React.ReactN
 
   return (
     <div className="flex min-h-screen bg-black text-white">
-      <aside className="w-[288px] flex-shrink-0 overflow-y-auto border-r border-[#D4AF37]/15 bg-[#0a0a0a] px-4 py-6">
-        <div className="mb-6 px-2">
-          <p className="text-xs font-semibold uppercase tracking-[0.25em] text-[#D4AF37]">Voltex Funding</p>
-          <p className="mt-0.5 text-sm text-zinc-500">Operations Centre</p>
-        </div>
-        <nav className="space-y-5">
-          {navGroups.map((group, i) => (
-            <div key={i}>
-              {group.label && (
-                <p className="mb-1.5 px-3 text-[10px] font-semibold uppercase tracking-[0.15em] text-zinc-600">{group.label}</p>
-              )}
-              <div className="space-y-0.5">
-                {group.items.map((item: any) => {
-                  const Icon = item.icon;
-                  return (
-                    <Link
-                      key={item.href}
-                      href={item.href}
-                      className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-zinc-400 transition-colors hover:bg-white/5 hover:text-white"
-                    >
-                      <Icon className="h-4 w-4 flex-shrink-0" strokeWidth={1.75} />
-                      <span className="truncate">{item.label}</span>
-                      {typeof item.badge === "number" && <Badge count={item.badge} />}
-                    </Link>
-                  );
-                })}
-              </div>
-            </div>
-          ))}
-        </nav>
-      </aside>
-      <main className="flex-1 overflow-x-hidden">{children}</main>
+      <AdminSidebar navGroups={navGroups} />
+      <main className="min-w-0 flex-1 overflow-x-hidden">{children}</main>
     </div>
   );
 }
