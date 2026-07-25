@@ -65,7 +65,7 @@ export default function AdminSidebar({ navGroups }: { navGroups: NavGroup[] }) {
             width={666}
             height={375}
             priority
-            className="h-14 w-auto brightness-110 drop-shadow-[0_0_18px_rgba(212,175,55,0.5)]"
+            className="h-20 w-auto brightness-130 drop-shadow-[0_0_18px_rgba(212,175,55,0.5)]"
           />
           <p className="mt-2 text-sm text-zinc-500">Operations Centre</p>
         </Link>
