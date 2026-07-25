@@ -1,4 +1,5 @@
 import { createServiceClient } from "@/lib/supabase/service";
+import AdminHeader from "@/components/admin/AdminHeader";
 
 interface PayoutRow {
   id: string;
@@ -40,44 +41,44 @@ export default async function PayoutRequestsPage() {
   const { payouts, emailsById } = await getPayoutRequests();
 
   return (
-    <div className="p-8">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-white">Payout Requests</h1>
-        <p className="mt-1 text-sm text-zinc-500">{payouts.length} request{payouts.length === 1 ? "" : "s"} recorded</p>
-      </div>
+    <div>
+      <AdminHeader title="Payout Requests" />
+      <div className="p-8">
+        <p className="mb-4 text-sm text-zinc-500">{payouts.length} request{payouts.length === 1 ? "" : "s"} recorded</p>
 
-      {payouts.length === 0 ? (
-        <div className="rounded-xl border border-white/10 bg-white/[0.02] p-12 text-center">
-          <p className="text-zinc-500">No payout requests yet.</p>
-        </div>
-      ) : (
-        <div className="overflow-x-auto rounded-xl border border-white/10">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-white/10 bg-white/[0.03] text-left text-xs uppercase tracking-wide text-zinc-500">
-                <th className="px-4 py-3 font-medium">Trader</th>
-                <th className="px-4 py-3 font-medium text-right">Amount</th>
-                <th className="px-4 py-3 font-medium">Status</th>
-                <th className="px-4 py-3 font-medium">Requested</th>
-                <th className="px-4 py-3 font-medium">Processed</th>
-              </tr>
-            </thead>
-            <tbody>
-              {payouts.map((p) => (
-                <tr key={p.id} className="border-b border-white/5 hover:bg-white/[0.02]">
-                  <td className="px-4 py-3 text-zinc-300">{emailsById.get(p.user_id) ?? "unknown"}</td>
-                  <td className="px-4 py-3 text-right font-mono text-zinc-300">₦{Number(p.amount).toLocaleString()}</td>
-                  <td className="px-4 py-3">
-                    <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${statusBadge(p.status)}`}>{p.status}</span>
-                  </td>
-                  <td className="px-4 py-3 text-xs text-zinc-500">{new Date(p.requested_at).toLocaleString()}</td>
-                  <td className="px-4 py-3 text-xs text-zinc-500">{p.processed_at ? new Date(p.processed_at).toLocaleString() : "—"}</td>
+        {payouts.length === 0 ? (
+          <div className="rounded-xl border border-white/10 bg-white/[0.02] p-12 text-center">
+            <p className="text-zinc-500">No payout requests yet.</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto rounded-xl border border-white/10">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-white/10 bg-white/[0.03] text-left text-xs uppercase tracking-wide text-zinc-500">
+                  <th className="px-4 py-3 font-medium">Trader</th>
+                  <th className="px-4 py-3 font-medium text-right">Amount</th>
+                  <th className="px-4 py-3 font-medium">Status</th>
+                  <th className="px-4 py-3 font-medium">Requested</th>
+                  <th className="px-4 py-3 font-medium">Processed</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+              </thead>
+              <tbody>
+                {payouts.map((p) => (
+                  <tr key={p.id} className="border-b border-white/5 hover:bg-white/[0.02]">
+                    <td className="px-4 py-3 text-zinc-300">{emailsById.get(p.user_id) ?? "unknown"}</td>
+                    <td className="px-4 py-3 text-right font-mono text-zinc-300">₦{Number(p.amount).toLocaleString()}</td>
+                    <td className="px-4 py-3">
+                      <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${statusBadge(p.status)}`}>{p.status}</span>
+                    </td>
+                    <td className="px-4 py-3 text-xs text-zinc-500">{new Date(p.requested_at).toLocaleString()}</td>
+                    <td className="px-4 py-3 text-xs text-zinc-500">{p.processed_at ? new Date(p.processed_at).toLocaleString() : "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

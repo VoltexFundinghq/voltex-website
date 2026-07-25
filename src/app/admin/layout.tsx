@@ -1,4 +1,5 @@
 import { requireAdmin } from "@/lib/auth/session";
+import { createServiceClient } from "@/lib/supabase/service";
 import Link from "next/link";
 import {
   LayoutDashboard, Users, Receipt, Activity, CheckCircle2, XCircle, Trophy,
@@ -6,64 +7,86 @@ import {
   ShieldAlert, Eye, FileText, Building2, Mail, Settings, UserCog,
 } from "lucide-react";
 
-const navGroups = [
-  {
-    label: null,
-    items: [{ label: "Dashboard", href: "/admin", icon: LayoutDashboard }],
-  },
-  {
-    label: "Traders",
-    items: [
-      { label: "Users", href: "/admin/users", icon: Users },
-      { label: "Purchases", href: "/admin/purchases", icon: Receipt },
-      { label: "Active Traders", href: "/admin/traders/active", icon: Activity },
-      { label: "Passed Traders", href: "/admin/traders/passed", icon: CheckCircle2 },
-      { label: "Failed Traders", href: "/admin/traders/failed", icon: XCircle },
-      { label: "Funded Traders", href: "/admin/traders/funded", icon: Trophy },
-    ],
-  },
-  {
-    label: "Operations",
-    items: [
-      { label: "Inventory", href: "/admin/inventory", icon: Package },
-      { label: "Provisioning Queue", href: "/admin/operations/provisioning-queue", icon: ListChecks },
-      { label: "VPS Monitoring", href: "/admin/operations/vps-monitoring", icon: Server },
-    ],
-  },
-  {
-    label: "Finance",
-    items: [
-      { label: "Payments", href: "/admin/finance/payments", icon: CreditCard },
-      { label: "Revenue", href: "/admin/finance/revenue", icon: TrendingUp },
-      { label: "Transactions", href: "/admin/finance/transactions", icon: ArrowLeftRight },
-      { label: "Payout Requests", href: "/admin/finance/payout-requests", icon: Banknote },
-    ],
-  },
-  {
-    label: "Risk",
-    items: [
-      { label: "Rule Violations", href: "/admin/risk/violations", icon: ShieldAlert },
-      { label: "Manual Reviews", href: "/admin/risk/reviews", icon: Eye },
-      { label: "Audit Logs", href: "/admin/risk/audit-logs", icon: FileText },
-    ],
-  },
-  {
-    label: "System",
-    items: [
-      { label: "Personal Areas", href: "/admin/system/personal-areas", icon: Building2 },
-      { label: "Email Queue", href: "/admin/system/email-queue", icon: Mail },
-      { label: "Admins", href: "/admin/system/admins", icon: UserCog },
-      { label: "Settings", href: "/admin/system/settings", icon: Settings },
-    ],
-  },
-];
+async function getBadgeCounts() {
+  const serviceClient = createServiceClient();
+  const [payouts, reviews] = await Promise.all([
+    serviceClient.from("payout_requests").select("id", { count: "exact", head: true }).eq("status", "pending"),
+    serviceClient.from("correlation_flags").select("id", { count: "exact", head: true }).eq("status", "pending_review"),
+  ]);
+  return {
+    payoutRequests: payouts.count ?? 0,
+    manualReviews: reviews.count ?? 0,
+  };
+}
+
+function Badge({ count }: { count: number }) {
+  if (count === 0) return null;
+  return (
+    <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-[#D4AF37] px-1.5 text-[11px] font-bold text-black">
+      {count > 99 ? "99+" : count}
+    </span>
+  );
+}
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   await requireAdmin();
+  const badges = await getBadgeCounts();
+
+  const navGroups = [
+    {
+      label: null,
+      items: [{ label: "Dashboard", href: "/admin", icon: LayoutDashboard }],
+    },
+    {
+      label: "Traders",
+      items: [
+        { label: "Users", href: "/admin/users", icon: Users },
+        { label: "Purchases", href: "/admin/purchases", icon: Receipt },
+        { label: "Active Traders", href: "/admin/traders/active", icon: Activity },
+        { label: "Passed Traders", href: "/admin/traders/passed", icon: CheckCircle2 },
+        { label: "Failed Traders", href: "/admin/traders/failed", icon: XCircle },
+        { label: "Funded Traders", href: "/admin/traders/funded", icon: Trophy },
+      ],
+    },
+    {
+      label: "Operations",
+      items: [
+        { label: "Inventory", href: "/admin/inventory", icon: Package },
+        { label: "Provisioning Queue", href: "/admin/operations/provisioning-queue", icon: ListChecks },
+        { label: "VPS Monitoring", href: "/admin/operations/vps-monitoring", icon: Server },
+      ],
+    },
+    {
+      label: "Finance",
+      items: [
+        { label: "Payments", href: "/admin/finance/payments", icon: CreditCard },
+        { label: "Revenue", href: "/admin/finance/revenue", icon: TrendingUp },
+        { label: "Transactions", href: "/admin/finance/transactions", icon: ArrowLeftRight },
+        { label: "Payout Requests", href: "/admin/finance/payout-requests", icon: Banknote, badge: badges.payoutRequests },
+      ],
+    },
+    {
+      label: "Risk",
+      items: [
+        { label: "Rule Violations", href: "/admin/risk/violations", icon: ShieldAlert },
+        { label: "Manual Reviews", href: "/admin/risk/reviews", icon: Eye, badge: badges.manualReviews },
+        { label: "Audit Logs", href: "/admin/risk/audit-logs", icon: FileText },
+      ],
+    },
+    {
+      label: "System",
+      items: [
+        { label: "Personal Areas", href: "/admin/system/personal-areas", icon: Building2 },
+        { label: "Email Queue", href: "/admin/system/email-queue", icon: Mail },
+        { label: "Admins", href: "/admin/system/admins", icon: UserCog },
+        { label: "Settings", href: "/admin/system/settings", icon: Settings },
+      ],
+    },
+  ];
 
   return (
     <div className="flex min-h-screen bg-black text-white">
-      <aside className="w-64 flex-shrink-0 overflow-y-auto border-r border-[#D4AF37]/15 bg-[#0a0a0a] px-4 py-6">
+      <aside className="w-[288px] flex-shrink-0 overflow-y-auto border-r border-[#D4AF37]/15 bg-[#0a0a0a] px-4 py-6">
         <div className="mb-6 px-2">
           <p className="text-xs font-semibold uppercase tracking-[0.25em] text-[#D4AF37]">Voltex Funding</p>
           <p className="mt-0.5 text-sm text-zinc-500">Operations Centre</p>
@@ -75,7 +98,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
                 <p className="mb-1.5 px-3 text-[10px] font-semibold uppercase tracking-[0.15em] text-zinc-600">{group.label}</p>
               )}
               <div className="space-y-0.5">
-                {group.items.map((item) => {
+                {group.items.map((item: any) => {
                   const Icon = item.icon;
                   return (
                     <Link
@@ -83,8 +106,9 @@ export default async function AdminLayout({ children }: { children: React.ReactN
                       href={item.href}
                       className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-zinc-400 transition-colors hover:bg-white/5 hover:text-white"
                     >
-                      <Icon className="h-4 w-4 flex-shrink-0" />
-                      {item.label}
+                      <Icon className="h-4 w-4 flex-shrink-0" strokeWidth={1.75} />
+                      <span className="truncate">{item.label}</span>
+                      {typeof item.badge === "number" && <Badge count={item.badge} />}
                     </Link>
                   );
                 })}
