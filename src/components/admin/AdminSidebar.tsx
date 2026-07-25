@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import {
   Menu, X, ChevronDown,
   LayoutDashboard, Users, Receipt, Activity, CheckCircle2, XCircle, Trophy,
@@ -57,10 +58,19 @@ export default function AdminSidebar({ navGroups }: { navGroups: NavGroup[] }) {
   const sidebarContent = (
     <>
       <div className="mb-6 flex items-center justify-between px-2">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.25em] text-[#D4AF37]">Voltex Funding</p>
-          <p className="mt-0.5 text-sm text-zinc-500">Operations Centre</p>
-        </div>
+        <Link href="/admin" className="flex items-center gap-2.5" onClick={() => setIsOpen(false)}>
+          <Image
+            src="/logo.png"
+            alt="Voltex Funding"
+            width={666}
+            height={375}
+            className="h-9 w-auto drop-shadow-[0_0_12px_rgba(212,175,55,0.4)]"
+          />
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[#D4AF37]">Voltex Funding</p>
+            <p className="text-xs text-zinc-500">Operations Centre</p>
+          </div>
+        </Link>
         <button
           onClick={() => setIsOpen(false)}
           className="rounded-lg p-1.5 text-zinc-500 hover:bg-white/5 hover:text-white lg:hidden"
