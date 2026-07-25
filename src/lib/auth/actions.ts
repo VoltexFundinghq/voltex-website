@@ -160,11 +160,29 @@ export async function signIn(prevState: AuthResult, formData: FormData): Promise
   }
 
   const supabase = await createClient();
-  const { error } = await supabase.auth.signInWithPassword({ email, password });
+  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
 
   if (error) return { error: "Invalid login credentials." };
 
   revalidatePath("/", "layout");
+
+  // Admin accounts land in the Operations Centre instead of the
+  // customer-facing homepage. Everyone else keeps the existing flow.
+  if (data.user) {
+    const serviceClient = createServiceClient();
+    const profileQuery = await serviceClient
+      .from("users")
+      .select("is_admin")
+      .eq("id", data.user.id)
+      .single();
+
+    const profile = profileQuery.data as { is_admin: boolean } | null;
+
+    if (profile?.is_admin) {
+      redirect("/admin");
+    }
+  }
+
   redirect("/");
 }
 
