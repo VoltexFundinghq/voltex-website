@@ -2,13 +2,25 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Menu, X, ChevronDown } from "lucide-react";
-import type { LucideIcon } from "lucide-react";
+import {
+  Menu, X, ChevronDown,
+  LayoutDashboard, Users, Receipt, Activity, CheckCircle2, XCircle, Trophy,
+  Package, ListChecks, Server, CreditCard, TrendingUp, ArrowLeftRight, Banknote,
+  ShieldAlert, Eye, FileText, Building2, Mail, Settings, UserCog,
+} from "lucide-react";
+
+const ICON_MAP = {
+  LayoutDashboard, Users, Receipt, Activity, CheckCircle2, XCircle, Trophy,
+  Package, ListChecks, Server, CreditCard, TrendingUp, ArrowLeftRight, Banknote,
+  ShieldAlert, Eye, FileText, Building2, Mail, Settings, UserCog,
+} as const;
+
+type IconName = keyof typeof ICON_MAP;
 
 interface NavItem {
   label: string;
   href: string;
-  icon: LucideIcon;
+  iconName: IconName;
   badge?: number;
 }
 
@@ -62,7 +74,7 @@ export default function AdminSidebar({ navGroups }: { navGroups: NavGroup[] }) {
             return (
               <div key={i} className="mb-3 space-y-0.5">
                 {group.items.map((item) => {
-                  const Icon = item.icon;
+                  const Icon = ICON_MAP[item.iconName];
                   return (
                     <Link
                       key={item.href}
@@ -97,7 +109,7 @@ export default function AdminSidebar({ navGroups }: { navGroups: NavGroup[] }) {
               {isExpanded && (
                 <div className="mt-0.5 space-y-0.5 pb-2">
                   {group.items.map((item) => {
-                    const Icon = item.icon;
+                    const Icon = ICON_MAP[item.iconName];
                     return (
                       <Link
                         key={item.href}

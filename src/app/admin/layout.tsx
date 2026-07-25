@@ -1,11 +1,6 @@
 import { requireAdmin } from "@/lib/auth/session";
 import { createServiceClient } from "@/lib/supabase/service";
 import AdminSidebar from "@/components/admin/AdminSidebar";
-import {
-  LayoutDashboard, Users, Receipt, Activity, CheckCircle2, XCircle, Trophy,
-  Package, ListChecks, Server, CreditCard, TrendingUp, ArrowLeftRight, Banknote,
-  ShieldAlert, Eye, FileText, Building2, Mail, Settings, UserCog,
-} from "lucide-react";
 
 async function getBadgeCounts() {
   const serviceClient = createServiceClient();
@@ -26,51 +21,51 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   const navGroups = [
     {
       label: null,
-      items: [{ label: "Dashboard", href: "/admin", icon: LayoutDashboard }],
+      items: [{ label: "Dashboard", href: "/admin", iconName: "LayoutDashboard" as const }],
     },
     {
       label: "Traders",
       items: [
-        { label: "Users", href: "/admin/users", icon: Users },
-        { label: "Purchases", href: "/admin/purchases", icon: Receipt },
-        { label: "Active Traders", href: "/admin/traders/active", icon: Activity },
-        { label: "Passed Traders", href: "/admin/traders/passed", icon: CheckCircle2 },
-        { label: "Failed Traders", href: "/admin/traders/failed", icon: XCircle },
-        { label: "Funded Traders", href: "/admin/traders/funded", icon: Trophy },
+        { label: "Users", href: "/admin/users", iconName: "Users" as const },
+        { label: "Purchases", href: "/admin/purchases", iconName: "Receipt" as const },
+        { label: "Active Traders", href: "/admin/traders/active", iconName: "Activity" as const },
+        { label: "Passed Traders", href: "/admin/traders/passed", iconName: "CheckCircle2" as const },
+        { label: "Failed Traders", href: "/admin/traders/failed", iconName: "XCircle" as const },
+        { label: "Funded Traders", href: "/admin/traders/funded", iconName: "Trophy" as const },
       ],
     },
     {
       label: "Operations",
       items: [
-        { label: "Inventory", href: "/admin/inventory", icon: Package },
-        { label: "Provisioning Queue", href: "/admin/operations/provisioning-queue", icon: ListChecks },
-        { label: "VPS Monitoring", href: "/admin/operations/vps-monitoring", icon: Server },
+        { label: "Inventory", href: "/admin/inventory", iconName: "Package" as const },
+        { label: "Provisioning Queue", href: "/admin/operations/provisioning-queue", iconName: "ListChecks" as const },
+        { label: "VPS Monitoring", href: "/admin/operations/vps-monitoring", iconName: "Server" as const },
       ],
     },
     {
       label: "Finance",
       items: [
-        { label: "Payments", href: "/admin/finance/payments", icon: CreditCard },
-        { label: "Revenue", href: "/admin/finance/revenue", icon: TrendingUp },
-        { label: "Transactions", href: "/admin/finance/transactions", icon: ArrowLeftRight },
-        { label: "Payout Requests", href: "/admin/finance/payout-requests", icon: Banknote, badge: badges.payoutRequests },
+        { label: "Payments", href: "/admin/finance/payments", iconName: "CreditCard" as const },
+        { label: "Revenue", href: "/admin/finance/revenue", iconName: "TrendingUp" as const },
+        { label: "Transactions", href: "/admin/finance/transactions", iconName: "ArrowLeftRight" as const },
+        { label: "Payout Requests", href: "/admin/finance/payout-requests", iconName: "Banknote" as const, badge: badges.payoutRequests },
       ],
     },
     {
       label: "Risk",
       items: [
-        { label: "Rule Violations", href: "/admin/risk/violations", icon: ShieldAlert },
-        { label: "Manual Reviews", href: "/admin/risk/reviews", icon: Eye, badge: badges.manualReviews },
-        { label: "Audit Logs", href: "/admin/risk/audit-logs", icon: FileText },
+        { label: "Rule Violations", href: "/admin/risk/violations", iconName: "ShieldAlert" as const },
+        { label: "Manual Reviews", href: "/admin/risk/reviews", iconName: "Eye" as const, badge: badges.manualReviews },
+        { label: "Audit Logs", href: "/admin/risk/audit-logs", iconName: "FileText" as const },
       ],
     },
     {
       label: "System",
       items: [
-        { label: "Personal Areas", href: "/admin/system/personal-areas", icon: Building2 },
-        { label: "Email Queue", href: "/admin/system/email-queue", icon: Mail },
-        { label: "Admins", href: "/admin/system/admins", icon: UserCog },
-        { label: "Settings", href: "/admin/system/settings", icon: Settings },
+        { label: "Personal Areas", href: "/admin/system/personal-areas", iconName: "Building2" as const },
+        { label: "Email Queue", href: "/admin/system/email-queue", iconName: "Mail" as const },
+        { label: "Admins", href: "/admin/system/admins", iconName: "UserCog" as const },
+        { label: "Settings", href: "/admin/system/settings", iconName: "Settings" as const },
       ],
     },
   ];
