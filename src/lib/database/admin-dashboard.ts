@@ -16,11 +16,20 @@ export interface RevenuePoint {
   revenue: number;
 }
 
+export interface RevenueBreakdown {
+  today: number;
+  thisWeek: number;
+  thisMonth: number;
+  avgPurchase: number;
+  avgDaily: number;
+}
+
 export interface RecentPurchase {
   id: string;
   email: string;
   challenge_size: string;
   price_paid: number;
+  payment_method: string;
   payment_status: string;
   created_at: string;
 }
@@ -41,26 +50,42 @@ export interface InventoryHealthRow {
   resetting: number;
   expired: number;
   total: number;
+  healthyPercent: number;
   healthLevel: "healthy" | "low" | "critical";
 }
 
 export interface SmartLoopStatus {
+  queueHealthy: boolean;
   waitingProvisioning: number;
+  browserWorker: "not_implemented";
+  metaApiConnection: "not_implemented";
+  inventoryHealthy: boolean;
   lowInventorySizes: number[];
-  activeVpsSlots: number;
-  healthyVpsSlots: number;
+  accountsResetting: number;
+  provisionRetryCount: "not_implemented";
 }
 
 export interface SystemHealthItem {
   name: string;
-  status: "healthy" | "warning" | "offline" | "unmonitored";
+  status: "healthy" | "warning" | "offline" | "not_implemented";
   detail: string;
 }
 
 export interface ActivityItem {
-  type: "User Registered" | "Challenge Purchased" | "Payment Confirmed" | "Account Assigned" | "Challenge Passed" | "Challenge Failed" | "Challenge Funded" | "Payout Requested";
+  type: "Challenge Purchased" | "Payment Confirmed" | "Challenge Passed" | "Challenge Failed" | "Challenge Funded" | "Payout Requested";
   description: string;
   timestamp: string;
+}
+
+export interface TodaysOperations {
+  challengesSold: number;
+  paymentsReceived: number;
+  accountsProvisioned: number;
+  accountsReset: "not_tracked";
+  passedToday: number;
+  failedToday: number;
+  fundedToday: number;
+  payoutRequestsToday: number;
 }
 
 const LOW_INVENTORY_THRESHOLD = 3;
@@ -70,6 +95,12 @@ function startOfUTCDay(d: Date): Date {
 }
 function startOfUTCMonth(d: Date): Date {
   return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1));
+}
+function startOfUTCWeek(d: Date): Date {
+  const day = startOfUTCDay(d);
+  const dayOfWeek = day.getUTCDay();
+  day.setUTCDate(day.getUTCDate() - dayOfWeek);
+  return day;
 }
 
 export async function getDashboardKPIs(): Promise<DashboardKPIs> {
@@ -132,6 +163,42 @@ export async function getRevenueLast30Days(): Promise<RevenuePoint[]> {
   return [...byDay.entries()].map(([date, revenue]) => ({ date, revenue }));
 }
 
+export async function getRevenueBreakdown(): Promise<RevenueBreakdown> {
+  const serviceClient = createServiceClient();
+  const now = new Date();
+  const todayStart = startOfUTCDay(now).toISOString();
+  const weekStart = startOfUTCWeek(now).toISOString();
+  const monthStart = startOfUTCMonth(now).toISOString();
+
+  const [todayQ, weekQ, monthQ, allTimeQ] = await Promise.all([
+    serviceClient.from("challenge_purchases").select("price_paid").eq("payment_status", "completed").gte("created_at", todayStart),
+    serviceClient.from("challenge_purchases").select("price_paid").eq("payment_status", "completed").gte("created_at", weekStart),
+    serviceClient.from("challenge_purchases").select("price_paid").eq("payment_status", "completed").gte("created_at", monthStart),
+    serviceClient.from("challenge_purchases").select("price_paid, created_at").eq("payment_status", "completed").order("created_at", { ascending: true }).limit(1),
+  ]);
+
+  const sum = (rows: { price_paid: number }[] | null) => (rows ?? []).reduce((s, r) => s + Number(r.price_paid), 0);
+  const monthRows = monthQ.data as { price_paid: number }[] | null;
+  const monthTotal = sum(monthRows);
+  const avgPurchase = monthRows && monthRows.length > 0 ? monthTotal / monthRows.length : 0;
+
+  const firstPurchase = (allTimeQ.data as { created_at: string }[] | null)?.[0];
+  const daysSinceFirst = firstPurchase
+    ? Math.max(1, Math.ceil((Date.now() - new Date(firstPurchase.created_at).getTime()) / (1000 * 60 * 60 * 24)))
+    : 1;
+
+  const allTimeSumQ = await serviceClient.from("challenge_purchases").select("price_paid").eq("payment_status", "completed");
+  const allTimeTotal = sum(allTimeSumQ.data as any);
+
+  return {
+    today: sum(todayQ.data as any),
+    thisWeek: sum(weekQ.data as any),
+    thisMonth: monthTotal,
+    avgPurchase,
+    avgDaily: allTimeTotal / daysSinceFirst,
+  };
+}
+
 export async function getRecentPurchases(limit = 8): Promise<RecentPurchase[]> {
   const serviceClient = createServiceClient();
   const purchasesQuery = await serviceClient
@@ -152,6 +219,7 @@ export async function getRecentPurchases(limit = 8): Promise<RecentPurchase[]> {
     email: emailsById.get(p.user_id) ?? "unknown",
     challenge_size: p.challenge_size,
     price_paid: Number(p.price_paid),
+    payment_method: "PalmPay", // only payment method ever integrated — a true fact, not a placeholder
     payment_status: p.payment_status,
     created_at: p.created_at,
   }));
@@ -161,14 +229,14 @@ export async function getRecentResults(limit = 8): Promise<RecentResult[]> {
   const serviceClient = createServiceClient();
   const query = await serviceClient
     .from("user_challenges")
-    .select("id, user_id, status, current_phase, created_at")
+    .select("id, user_id, trading_account_id, status, current_phase, created_at")
     .in("status", ["passed", "failed"])
     .order("created_at", { ascending: false })
     .limit(limit * 2);
 
   const fundedQuery = await serviceClient
     .from("user_challenges")
-    .select("id, user_id, created_at")
+    .select("id, user_id, trading_account_id, created_at")
     .eq("status", "active")
     .eq("current_phase", 3)
     .order("created_at", { ascending: false })
@@ -178,21 +246,30 @@ export async function getRecentResults(limit = 8): Promise<RecentResult[]> {
   const fundedRows = (fundedQuery.data as any[] | null) ?? [];
 
   const combined = [
-    ...rows.map((r) => ({ id: r.id, user_id: r.user_id, outcome: r.status as "passed" | "failed", created_at: r.created_at })),
-    ...fundedRows.map((r) => ({ id: r.id, user_id: r.user_id, outcome: "funded" as const, created_at: r.created_at })),
+    ...rows.map((r) => ({ id: r.id, user_id: r.user_id, trading_account_id: r.trading_account_id, outcome: r.status as "passed" | "failed", created_at: r.created_at })),
+    ...fundedRows.map((r) => ({ id: r.id, user_id: r.user_id, trading_account_id: r.trading_account_id, outcome: "funded" as const, created_at: r.created_at })),
   ].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).slice(0, limit);
 
   if (combined.length === 0) return [];
 
   const userIds = [...new Set(combined.map((c) => c.user_id))];
-  const usersQuery = await serviceClient.from("users").select("id, email").in("id", userIds);
+  const accountIds = [...new Set(combined.map((c) => c.trading_account_id).filter((id): id is string => !!id))];
+
+  const [usersQuery, accountsQuery] = await Promise.all([
+    serviceClient.from("users").select("id, email").in("id", userIds),
+    accountIds.length > 0
+      ? serviceClient.from("trading_accounts").select("id, account_size").in("id", accountIds)
+      : Promise.resolve({ data: [] as any[] }),
+  ]);
+
   const emailsById = new Map((usersQuery.data as { id: string; email: string }[] ?? []).map((u) => [u.id, u.email]));
+  const sizesById = new Map((accountsQuery.data as { id: string; account_size: number }[] ?? []).map((a) => [a.id, a.account_size]));
 
   return combined.map((c) => ({
     id: c.id,
     email: emailsById.get(c.user_id) ?? "unknown",
     outcome: c.outcome,
-    account_size: null,
+    account_size: c.trading_account_id ? sizesById.get(c.trading_account_id) ?? null : null,
     created_at: c.created_at,
   }));
 }
@@ -215,8 +292,9 @@ export async function getInventoryHealth(): Promise<InventoryHealthRow[]> {
 
   return [...bySize.entries()].sort((a, b) => a[0] - b[0]).map(([size, counts]) => {
     const total = counts.available + counts.reserved + counts.assigned + counts.resetting + counts.expired;
+    const healthyPercent = total > 0 ? Math.round((counts.available / total) * 100) : 0;
     const healthLevel: "healthy" | "low" | "critical" = counts.available === 0 ? "critical" : counts.available < LOW_INVENTORY_THRESHOLD ? "low" : "healthy";
-    return { size, ...counts, total, healthLevel };
+    return { size, ...counts, total, healthyPercent, healthLevel };
   });
 }
 
@@ -225,29 +303,20 @@ export async function getSmartLoopStatus(): Promise<SmartLoopStatus> {
   const inventory = await getInventoryHealth();
   const lowInventorySizes = inventory.filter((i) => i.healthLevel !== "healthy").map((i) => i.size);
 
-  const [waiting, slots] = await Promise.all([
+  const [waiting, resetting] = await Promise.all([
     serviceClient.from("user_challenges").select("id", { count: "exact", head: true }).eq("status", "awaiting_allocation"),
-    serviceClient.from("vps_slots").select("current_user_challenge_id"),
+    serviceClient.from("trading_accounts").select("id", { count: "exact", head: true }).eq("status", "resetting"),
   ]);
 
-  const slotRows = slots.data as { current_user_challenge_id: string | null }[] | null;
-  const activeSlots = (slotRows ?? []).filter((s) => s.current_user_challenge_id !== null).length;
-
-  const challengeIds = (slotRows ?? []).map((s) => s.current_user_challenge_id).filter((id): id is string => !!id);
-  const healthyQuery = challengeIds.length > 0
-    ? await serviceClient.from("user_challenges").select("last_known_check_at").in("id", challengeIds)
-    : { data: [] as any[] };
-
-  const healthyCount = (healthyQuery.data as { last_known_check_at: string | null }[] ?? []).filter((c) => {
-    if (!c.last_known_check_at) return false;
-    return (Date.now() - new Date(c.last_known_check_at).getTime()) < 60 * 1000;
-  }).length;
-
   return {
+    queueHealthy: (waiting.count ?? 0) === 0,
     waitingProvisioning: waiting.count ?? 0,
+    browserWorker: "not_implemented",
+    metaApiConnection: "not_implemented",
+    inventoryHealthy: lowInventorySizes.length === 0,
     lowInventorySizes,
-    activeVpsSlots: activeSlots,
-    healthyVpsSlots: healthyCount,
+    accountsResetting: resetting.count ?? 0,
+    provisionRetryCount: "not_implemented",
   };
 }
 
@@ -280,19 +349,20 @@ export async function getSystemHealth(): Promise<SystemHealthItem[]> {
 
   return [
     { name: "Supabase", status: supabaseHealthy ? "healthy" : "offline", detail: supabaseHealthy ? "Responding normally" : "Query failed" },
-    { name: "VPS Pollers", status: pollerHealthy === null ? "unmonitored" : pollerHealthy ? "healthy" : "warning", detail: lastCheck ? `Last check ${new Date(lastCheck).toLocaleTimeString()}` : "No active accounts being watched" },
-    { name: "Email Service (Resend)", status: "unmonitored", detail: "No live health check built yet — sends are fire-and-forget" },
-    { name: "News Calendar Worker", status: newsHealthy === null ? "unmonitored" : newsHealthy ? "healthy" : "warning", detail: lastNewsFetch ? `Last fetch ${new Date(lastNewsFetch).toLocaleString()}` : "Never run yet" },
+    { name: "Resend (Email)", status: "not_implemented", detail: "Health check not implemented yet" },
+    { name: "Browser Worker", status: "not_implemented", detail: "Health check not implemented yet — no browser automation exists" },
+    { name: "MetaAPI", status: "not_implemented", detail: "Health check not implemented yet — not part of our architecture" },
+    { name: "VPS Worker", status: pollerHealthy === null ? "not_implemented" : pollerHealthy ? "healthy" : "warning", detail: lastCheck ? `Last check ${new Date(lastCheck).toLocaleTimeString()}` : "No active accounts being watched" },
+    { name: "News Calendar Worker", status: newsHealthy === null ? "not_implemented" : newsHealthy ? "healthy" : "warning", detail: lastNewsFetch ? `Last fetch ${new Date(lastNewsFetch).toLocaleString()}` : "Never run yet" },
   ];
 }
 
 export async function getRecentActivity(limit = 15): Promise<ActivityItem[]> {
   const serviceClient = createServiceClient();
 
-  const [users, purchases, challenges, payouts] = await Promise.all([
-    serviceClient.from("users").select("email, created_at").order("created_at", { ascending: false }).limit(limit),
+  const [purchases, challenges, payouts] = await Promise.all([
     serviceClient.from("challenge_purchases").select("user_id, challenge_size, payment_status, created_at").order("created_at", { ascending: false }).limit(limit),
-    serviceClient.from("user_challenges").select("user_id, status, current_phase, created_at").order("created_at", { ascending: false }).limit(limit),
+    serviceClient.from("user_challenges").select("user_id, status, current_phase, created_at").in("status", ["passed", "failed"]).order("created_at", { ascending: false }).limit(limit),
     serviceClient.from("payout_requests").select("user_id, amount, requested_at").order("requested_at", { ascending: false }).limit(limit),
   ]);
 
@@ -308,9 +378,6 @@ export async function getRecentActivity(limit = 15): Promise<ActivityItem[]> {
 
   const items: ActivityItem[] = [];
 
-  for (const u of (users.data as any[] ?? [])) {
-    items.push({ type: "User Registered", description: u.email, timestamp: u.created_at });
-  }
   for (const p of (purchases.data as any[] ?? [])) {
     const email = emailsById.get(p.user_id) ?? "unknown";
     if (p.payment_status === "completed") {
@@ -323,8 +390,6 @@ export async function getRecentActivity(limit = 15): Promise<ActivityItem[]> {
     const email = emailsById.get(c.user_id) ?? "unknown";
     if (c.status === "passed") items.push({ type: "Challenge Passed", description: email, timestamp: c.created_at });
     else if (c.status === "failed") items.push({ type: "Challenge Failed", description: email, timestamp: c.created_at });
-    else if (c.status === "active" && c.current_phase === 3) items.push({ type: "Challenge Funded", description: email, timestamp: c.created_at });
-    else items.push({ type: "Account Assigned", description: email, timestamp: c.created_at });
   }
   for (const p of (payouts.data as any[] ?? [])) {
     const email = emailsById.get(p.user_id) ?? "unknown";
@@ -332,4 +397,30 @@ export async function getRecentActivity(limit = 15): Promise<ActivityItem[]> {
   }
 
   return items.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()).slice(0, limit);
+}
+
+export async function getTodaysOperations(): Promise<TodaysOperations> {
+  const serviceClient = createServiceClient();
+  const todayStart = startOfUTCDay(new Date()).toISOString();
+
+  const [sold, paid, provisioned, passedToday, failedToday, fundedToday, payoutsToday] = await Promise.all([
+    serviceClient.from("challenge_purchases").select("id", { count: "exact", head: true }).gte("created_at", todayStart),
+    serviceClient.from("challenge_purchases").select("id", { count: "exact", head: true }).eq("payment_status", "completed").gte("created_at", todayStart),
+    serviceClient.from("user_challenges").select("id", { count: "exact", head: true }).not("trading_account_id", "is", null).gte("created_at", todayStart),
+    serviceClient.from("user_challenges").select("id", { count: "exact", head: true }).eq("status", "passed").gte("created_at", todayStart),
+    serviceClient.from("user_challenges").select("id", { count: "exact", head: true }).eq("status", "failed").gte("created_at", todayStart),
+    serviceClient.from("user_challenges").select("id", { count: "exact", head: true }).eq("status", "active").eq("current_phase", 3).gte("created_at", todayStart),
+    serviceClient.from("payout_requests").select("id", { count: "exact", head: true }).gte("requested_at", todayStart),
+  ]);
+
+  return {
+    challengesSold: sold.count ?? 0,
+    paymentsReceived: paid.count ?? 0,
+    accountsProvisioned: provisioned.count ?? 0,
+    accountsReset: "not_tracked",
+    passedToday: passedToday.count ?? 0,
+    failedToday: failedToday.count ?? 0,
+    fundedToday: fundedToday.count ?? 0,
+    payoutRequestsToday: payoutsToday.count ?? 0,
+  };
 }
