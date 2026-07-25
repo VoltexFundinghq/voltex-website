@@ -247,6 +247,18 @@ export async function POST(request: Request) {
     return NextResponse.json({ status: "ignored", reason: "no active challenge for this account" });
   }
 
+  // --- Record the last known live balance/equity, on EVERY successful
+  // check, regardless of what else happens below. This is what powers
+  // the admin Live Monitoring view — previously this data was never
+  // persisted anywhere, only used transiently in-memory. ---
+  await (serviceClient.from("user_challenges") as any)
+    .update({
+      last_known_balance: Number(balance),
+      last_known_equity: Number(equity),
+      last_known_check_at: new Date().toISOString(),
+    })
+    .eq("id", challenge.id);
+
   if (Array.isArray(closedTrades)) {
     for (const t of closedTrades) {
       await (serviceClient.from("recorded_trades") as any)
@@ -273,7 +285,6 @@ export async function POST(request: Request) {
     console.error("Correlation check failed (non-fatal, continuing):", err);
   }
 
-  // --- News Trading: straight breach, no warning stage. ---
   if (Array.isArray(closedTrades) && closedTrades.length > 0) {
     const challengeStartDateForNews = new Date(challenge.start_date ?? challenge.purchase_date);
     const relevantTrades = closedTrades
@@ -324,7 +335,6 @@ export async function POST(request: Request) {
     }
   }
 
-  // --- Weekend Holding ---
   if (Array.isArray(openPositions) && openPositions.length > 0) {
     const weekendResult = checkWeekendHolding({
       openPositions: openPositions.map((p: any) => ({
@@ -426,11 +436,6 @@ export async function POST(request: Request) {
     }
   }
 
-  // --- CORRECTED balance-reset detection: distinguishes "never
-  // checked before" (silently record baseline, NOT a reset) from a
-  // GENUINELY new deal appearing after a real baseline already
-  // exists (an actual reset). Fixes the bug where a brand-new
-  // account's own genesis funding deal was mistaken for a reset. ---
   const dealId = Number(latestBalanceDealId ?? 0);
   const hasEstablishedBaseline = challenge.last_balance_deal_id !== null && challenge.last_balance_deal_id !== undefined;
 
@@ -440,9 +445,6 @@ export async function POST(request: Request) {
         .update({ last_balance_deal_id: dealId })
         .eq("id", challenge.id);
     }
-    // Deliberately no notification, no phase change — this is just
-    // establishing where this account's history "starts" from our
-    // perspective, not a real event happening right now.
   } else if (
     !challenge.balance_detection_paused &&
     dealId > 0 &&
