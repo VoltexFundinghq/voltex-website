@@ -1,89 +1,41 @@
-import { createServiceClient } from "@/lib/supabase/service";
+import { getUserSummaryStats, getUsersPage } from "@/lib/database/admin-users";
 import AdminHeader from "@/components/admin/AdminHeader";
+import UsersTable from "@/components/admin/UsersTable";
+import { Users2, Activity, Ban, Trophy, Receipt, DollarSign } from "lucide-react";
 
-interface UserRow {
-  id: string;
-  full_name: string | null;
-  username: string | null;
-  email: string;
-  phone: string | null;
-  country: string | null;
-  kyc_status: string;
-  is_admin: boolean;
-  created_at: string;
-}
-
-async function getAllUsers(): Promise<UserRow[]> {
-  const serviceClient = createServiceClient();
-  const query = await serviceClient
-    .from("users")
-    .select("id, full_name, username, email, phone, country, kyc_status, is_admin, created_at")
-    .order("created_at", { ascending: false });
-
-  const rows = query.data as UserRow[] | null;
-  if (query.error || !rows) {
-    console.error("getAllUsers failed:", query.error);
-    return [];
-  }
-  return rows;
-}
-
-function kycBadge(status: string) {
-  if (status === "verified") return "bg-emerald-400/10 text-emerald-400";
-  if (status === "rejected") return "bg-red-400/10 text-red-400";
-  return "bg-white/5 text-zinc-400";
+function StatCard({ label, value, icon: Icon, tone }: { label: string; value: string; icon: any; tone?: "success" | "danger" | "gold" }) {
+  const toneClass = tone === "success" ? "text-emerald-400" : tone === "danger" ? "text-red-400" : tone === "gold" ? "text-[#D4AF37]" : "text-white";
+  return (
+    <div className="rounded-xl border border-white/10 bg-white/[0.02] p-5">
+      <div className="flex items-center justify-between">
+        <p className="text-xs uppercase tracking-wide text-zinc-500">{label}</p>
+        <Icon className="h-4 w-4 text-zinc-600" strokeWidth={1.75} />
+      </div>
+      <p className={`mt-2 text-2xl font-bold ${toneClass}`}>{value}</p>
+    </div>
+  );
 }
 
 export default async function UsersPage() {
-  const users = await getAllUsers();
+  const [stats, initial] = await Promise.all([
+    getUserSummaryStats(),
+    getUsersPage({ page: 1, pageSize: 20 }),
+  ]);
 
   return (
     <div>
       <AdminHeader title="Users" />
-      <div className="p-8">
-        <p className="mb-4 text-sm text-zinc-500">{users.length} registered account{users.length === 1 ? "" : "s"}</p>
+      <div className="space-y-6 p-4 sm:p-8">
+        <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-6">
+          <StatCard label="Total Users" value={String(stats.totalUsers)} icon={Users2} tone="gold" />
+          <StatCard label="Active Traders" value={String(stats.activeTraders)} icon={Activity} />
+          <StatCard label="Suspended" value={String(stats.suspendedUsers)} icon={Ban} tone="danger" />
+          <StatCard label="Funded Traders" value={String(stats.fundedTraders)} icon={Trophy} tone="gold" />
+          <StatCard label="Total Purchases" value={String(stats.totalPurchases)} icon={Receipt} />
+          <StatCard label="Total Revenue" value={`₦${stats.totalRevenue.toLocaleString()}`} icon={DollarSign} tone="success" />
+        </div>
 
-        {users.length === 0 ? (
-          <div className="rounded-xl border border-white/10 bg-white/[0.02] p-12 text-center">
-            <p className="text-zinc-500">No users registered yet.</p>
-          </div>
-        ) : (
-          <div className="overflow-x-auto rounded-xl border border-white/10">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-white/10 bg-white/[0.03] text-left text-xs uppercase tracking-wide text-zinc-500">
-                  <th className="px-4 py-3 font-medium">Name</th>
-                  <th className="px-4 py-3 font-medium">Email</th>
-                  <th className="px-4 py-3 font-medium">Username</th>
-                  <th className="px-4 py-3 font-medium">Country</th>
-                  <th className="px-4 py-3 font-medium">KYC</th>
-                  <th className="px-4 py-3 font-medium">Joined</th>
-                </tr>
-              </thead>
-              <tbody>
-                {users.map((u) => (
-                  <tr key={u.id} className="border-b border-white/5 hover:bg-white/[0.02]">
-                    <td className="px-4 py-3 text-zinc-300">
-                      {u.full_name ?? "—"}
-                      {u.is_admin && <span className="ml-2 rounded-full bg-[#D4AF37]/10 px-2 py-0.5 text-[10px] font-medium text-[#D4AF37]">ADMIN</span>}
-                    </td>
-                    <td className="px-4 py-3 text-zinc-400">{u.email}</td>
-                    <td className="px-4 py-3 font-mono text-zinc-500">{u.username ?? "—"}</td>
-                    <td className="px-4 py-3 text-zinc-400">{u.country ?? "—"}</td>
-                    <td className="px-4 py-3">
-                      <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${kycBadge(u.kyc_status)}`}>
-                        {u.kyc_status}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-xs text-zinc-500">
-                      {new Date(u.created_at).toLocaleDateString()}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+        <UsersTable initialUsers={initial.users} initialTotalCount={initial.totalCount} />
       </div>
     </div>
   );
