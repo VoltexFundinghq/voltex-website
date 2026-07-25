@@ -57,19 +57,17 @@ export default function AdminSidebar({ navGroups }: { navGroups: NavGroup[] }) {
 
   const sidebarContent = (
     <>
-      <div className="mb-6 flex items-center justify-between px-2">
-        <Link href="/admin" className="flex items-center gap-2.5" onClick={() => setIsOpen(false)}>
+      <div className="mb-6 flex items-start justify-between px-2">
+        <Link href="/admin" className="block" onClick={() => setIsOpen(false)}>
           <Image
             src="/logo.png"
             alt="Voltex Funding"
             width={666}
             height={375}
-            className="h-9 w-auto drop-shadow-[0_0_12px_rgba(212,175,55,0.4)]"
+            priority
+            className="h-14 w-auto brightness-110 drop-shadow-[0_0_18px_rgba(212,175,55,0.5)]"
           />
-          <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[#D4AF37]">Voltex Funding</p>
-            <p className="text-xs text-zinc-500">Operations Centre</p>
-          </div>
+          <p className="mt-2 text-sm text-zinc-500">Operations Centre</p>
         </Link>
         <button
           onClick={() => setIsOpen(false)}
