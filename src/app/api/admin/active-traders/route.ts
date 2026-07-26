@@ -8,9 +8,18 @@ export async function GET(request: Request) {
 
   const { searchParams } = new URL(request.url);
   const search = searchParams.get("search") ?? undefined;
-  const filter = searchParams.get("filter") ?? "all";
   const page = Number(searchParams.get("page") ?? "1");
 
-  const result = await getActiveTradersPage({ search, filter, page, pageSize: 20 });
+  const filters = {
+    accountSize: searchParams.get("accountSize") ?? undefined,
+    phase: searchParams.get("phase") ?? undefined,
+    status: searchParams.get("status") ?? undefined,
+    profitability: searchParams.get("profitability") ?? undefined,
+    country: searchParams.get("country") ?? undefined,
+    vpsSlot: searchParams.get("vpsSlot") ?? undefined,
+    riskLevel: searchParams.get("riskLevel") ?? undefined,
+  };
+
+  const result = await getActiveTradersPage({ search, filters, page, pageSize: 50 });
   return NextResponse.json(result);
 }

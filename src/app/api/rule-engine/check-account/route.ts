@@ -247,15 +247,14 @@ export async function POST(request: Request) {
     return NextResponse.json({ status: "ignored", reason: "no active challenge for this account" });
   }
 
-  // --- Record the last known live balance/equity, on EVERY successful
-  // check, regardless of what else happens below. This is what powers
-  // the admin Live Monitoring view — previously this data was never
-  // persisted anywhere, only used transiently in-memory. ---
+  // --- Record the last known live balance/equity/open-trade-count on
+  // EVERY successful check, regardless of what else happens below. ---
   await (serviceClient.from("user_challenges") as any)
     .update({
       last_known_balance: Number(balance),
       last_known_equity: Number(equity),
       last_known_check_at: new Date().toISOString(),
+      last_known_open_trades: Array.isArray(openPositions) ? openPositions.length : null,
     })
     .eq("id", challenge.id);
 
