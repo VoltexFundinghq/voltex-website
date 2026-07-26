@@ -36,8 +36,8 @@ export interface TimelineStep {
 }
 
 export interface Journey {
-  id: string; // root challenge id
-  label: string; // e.g. "₦500,000 Challenge — Started Jul 20"
+  id: string;
+  label: string;
   timeline: TimelineStep[];
   assignedAccounts: {
     account_login: string | null; server: string | null; currentStage: string;
@@ -50,6 +50,7 @@ export interface Alert {
   label: string;
   active: boolean;
   detail: string;
+  linkedTab: "Profile" | "Journeys" | "Financial" | null;
 }
 
 export interface ActivityEvent {
@@ -67,6 +68,7 @@ export interface UserDetail {
     phone: string | null;
     created_at: string;
     last_sign_in_at: string | null;
+    kyc_status: string;
   };
   journeys: Journey[];
   alerts: Alert[];
@@ -320,11 +322,6 @@ export async function getUserDetail(userId: string): Promise<UserDetail | null> 
     : { data: [] as any[] };
   const accountById = new Map((accountsQuery.data as any[] ?? []).map((a) => [a.id, a]));
 
-  // --- Group challenges into JOURNEYS. A row with current_phase===3
-  // is ALWAYS a funded-continuation (confirmed: our only path that
-  // creates such a row is handlePassed() upon a real Phase 2 pass) —
-  // it never exists as a genuine root. We link it to the nearest
-  // preceding 'passed' root for the same user by timing. ---
   const roots = challenges.filter((c) => c.current_phase !== 3).sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
   const continuations = challenges.filter((c) => c.current_phase === 3);
 
@@ -345,7 +342,6 @@ export async function getUserDetail(userId: string): Promise<UserDetail | null> 
     .map((root) => {
       const continuation = rootToContinuation.get(root.id);
       const rootAccount = root.trading_account_id ? accountById.get(root.trading_account_id) : null;
-      const contAccount = continuation?.trading_account_id ? accountById.get(continuation.trading_account_id) : null;
 
       const matchingPurchase = purchaseRows.find((p) => Math.abs(new Date(p.created_at).getTime() - new Date(root.created_at).getTime()) < 5 * 60 * 1000)
         ?? purchaseRows.find((p) => new Date(p.created_at) <= new Date(root.created_at));
@@ -397,19 +393,17 @@ export async function getUserDetail(userId: string): Promise<UserDetail | null> 
       return { id: root.id, label, timeline, assignedAccounts: journeyAccounts };
     });
 
-  // --- Alerts: real, live-derived ---
   const hasRuleViolation = challenges.some((c) => c.status === "failed" || c.hold_time_warnings_notified > 0 || c.drawdown_warning_sent || c.weekend_hold_warnings > 0)
     || (correlationQuery.data && correlationQuery.data.length > 0);
 
   const alerts: Alert[] = [
-    { label: "Failed Login Attempts", active: false, detail: "Not tracked yet" },
-    { label: "Payment Dispute", active: false, detail: "Not tracked yet" },
-    { label: "Rule Violation", active: !!hasRuleViolation, detail: hasRuleViolation ? "Warning, breach, or correlation flag on record" : "None" },
-    { label: "KYC Pending", active: profile.kyc_status === "pending", detail: profile.kyc_status },
-    { label: "Awaiting Payout", active: outstandingPayout > 0, detail: outstandingPayout > 0 ? `₦${outstandingPayout.toLocaleString()} pending` : "None" },
+    { label: "Failed Login Attempts", active: false, detail: "Not tracked yet", linkedTab: null },
+    { label: "Payment Dispute", active: false, detail: "Not tracked yet", linkedTab: null },
+    { label: "Rule Violation", active: !!hasRuleViolation, detail: hasRuleViolation ? "Warning, breach, or correlation flag on record" : "None", linkedTab: "Journeys" },
+    { label: "KYC Pending", active: profile.kyc_status === "pending", detail: profile.kyc_status, linkedTab: "Profile" },
+    { label: "Awaiting Payout", active: outstandingPayout > 0, detail: outstandingPayout > 0 ? `₦${outstandingPayout.toLocaleString()} pending` : "None", linkedTab: "Financial" },
   ];
 
-  // --- Activity Feed: real events, natural language ---
   const events: ActivityEvent[] = [];
   for (const p of purchaseRows) {
     events.push({ text: `Purchased ${p.challenge_size} Challenge`, timestamp: p.created_at });
@@ -450,6 +444,7 @@ export async function getUserDetail(userId: string): Promise<UserDetail | null> 
       phone: profile.phone,
       created_at: profile.created_at,
       last_sign_in_at: lastSignInAt,
+      kyc_status: profile.kyc_status,
     },
     journeys,
     alerts,

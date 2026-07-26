@@ -42,6 +42,7 @@ interface Alert {
   label: string;
   active: boolean;
   detail: string;
+  linkedTab: "Profile" | "Journeys" | "Financial" | null;
 }
 
 interface ActivityEvent {
@@ -53,6 +54,7 @@ interface UserDetail {
   profile: {
     id: string; full_name: string | null; email: string; username: string | null;
     country: string | null; phone: string | null; created_at: string; last_sign_in_at: string | null;
+    kyc_status: string;
   };
   journeys: Journey[];
   alerts: Alert[];
@@ -182,23 +184,28 @@ function ActionsMenu({
   );
 }
 
-function AlertsPanel({ alerts }: { alerts: Alert[] }) {
+function AlertsPanel({ alerts, onNavigate }: { alerts: Alert[]; onNavigate: (tab: Tab) => void }) {
   const activeAlerts = alerts.filter((a) => a.active);
   return (
     <div className="mb-4 rounded-lg border border-white/10 bg-black/30 p-3">
       <div className="flex flex-wrap gap-2">
-        {alerts.map((a) => (
-          <span
-            key={a.label}
-            title={a.detail}
-            className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${
-              a.active ? "bg-red-400/10 text-red-400" : "bg-white/5 text-zinc-600"
-            }`}
-          >
-            <AlertTriangle className="h-3 w-3" strokeWidth={1.75} />
-            {a.label}
-          </span>
-        ))}
+        {alerts.map((a) => {
+          const isClickable = !!a.linkedTab;
+          const Tag: any = isClickable ? "button" : "span";
+          return (
+            <Tag
+              key={a.label}
+              title={a.detail}
+              onClick={isClickable ? () => onNavigate(a.linkedTab as Tab) : undefined}
+              className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium transition-colors ${
+                a.active ? "bg-red-400/10 text-red-400" : "bg-white/5 text-zinc-600"
+              } ${isClickable ? "cursor-pointer hover:bg-white/10" : ""}`}
+            >
+              <AlertTriangle className="h-3 w-3" strokeWidth={1.75} />
+              {a.label}
+            </Tag>
+          );
+        })}
       </div>
       {activeAlerts.length === 0 && <p className="mt-1.5 text-xs text-zinc-600">No active alerts.</p>}
     </div>
@@ -252,7 +259,7 @@ function UserDetailPanel({ userId, onProvisioned }: { userId: string; onProvisio
 
   return (
     <div className="bg-black/30 p-6">
-      <AlertsPanel alerts={detail.alerts} />
+      <AlertsPanel alerts={detail.alerts} onNavigate={setActiveTab} />
 
       <div className="flex flex-wrap gap-1 border-b border-white/10">
         {TABS.map((tab) => (
@@ -277,6 +284,7 @@ function UserDetailPanel({ userId, onProvisioned }: { userId: string; onProvisio
               <p className="text-zinc-400">Username: <span className="text-zinc-200">{detail.profile.username ?? "—"}</span></p>
               <p className="text-zinc-400">Country: <span className="text-zinc-200">{detail.profile.country ?? "—"}</span></p>
               <p className="text-zinc-400">Phone: <span className="text-zinc-200">{detail.profile.phone ?? "—"}</span></p>
+              <p className="text-zinc-400">KYC Status: <span className="text-zinc-200 capitalize">{detail.profile.kyc_status}</span></p>
               <p className="text-zinc-400">Registered: <span className="text-zinc-200">{fmtDate(detail.profile.created_at)}</span></p>
               <p className="text-zinc-400">Last Login: <span className="text-zinc-200">{fmtDateTime(detail.profile.last_sign_in_at)}</span></p>
               <p className="font-mono text-xs text-zinc-600">ID: {detail.profile.id}</p>
