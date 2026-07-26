@@ -1,97 +1,45 @@
-import { getTradersByStatus } from "@/lib/database/admin-queries";
+import { getActiveTraderStats, getActiveTradersPage, getActiveTraderCharts } from "@/lib/database/admin-active-traders";
 import AdminHeader from "@/components/admin/AdminHeader";
-import { AlertTriangle, Clock } from "lucide-react";
+import ActiveTraderCharts from "@/components/admin/ActiveTraderCharts";
+import ActiveTradersTable from "@/components/admin/ActiveTradersTable";
+import { Activity, Trophy, AlertTriangle, TrendingUp, TrendingDown, RefreshCw } from "lucide-react";
 
-function timeSince(dateStr: string | null): string {
-  if (!dateStr) return "never";
-  const seconds = Math.floor((Date.now() - new Date(dateStr).getTime()) / 1000);
-  if (seconds < 60) return `${seconds}s ago`;
-  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
-  return `${Math.floor(seconds / 3600)}h ago`;
-}
-
-function phaseLabel(phase: number): string {
-  if (phase === 1) return "Phase 1";
-  if (phase === 2) return "Phase 2";
-  if (phase === 3) return "Funded";
-  return `Phase ${phase}`;
+function StatCard({ label, value, icon: Icon, tone }: { label: string; value: string; icon: any; tone?: "success" | "danger" | "gold" }) {
+  const toneClass = tone === "success" ? "text-emerald-400" : tone === "danger" ? "text-red-400" : tone === "gold" ? "text-[#D4AF37]" : "text-white";
+  return (
+    <div className="rounded-xl border border-white/10 bg-white/[0.02] p-5">
+      <div className="flex items-center justify-between">
+        <p className="text-xs uppercase tracking-wide text-zinc-500">{label}</p>
+        <Icon className="h-4 w-4 text-zinc-600" strokeWidth={1.75} />
+      </div>
+      <p className={`mt-2 text-2xl font-bold ${toneClass}`}>{value}</p>
+    </div>
+  );
 }
 
 export default async function ActiveTradersPage() {
-  const traders = await getTradersByStatus("active");
+  const [stats, initial, chartData] = await Promise.all([
+    getActiveTraderStats(),
+    getActiveTradersPage({ page: 1, pageSize: 20 }),
+    getActiveTraderCharts(),
+  ]);
 
   return (
     <div>
       <AdminHeader title="Active Traders" />
-      <div className="p-8">
-        <p className="mb-4 text-sm text-zinc-500">{traders.length} currently active challenge{traders.length === 1 ? "" : "s"}</p>
+      <div className="space-y-6 p-4 sm:p-8">
+        <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-6">
+          <StatCard label="Active Challenge Traders" value={String(stats.activeChallengeTraders)} icon={Activity} tone="gold" />
+          <StatCard label="Funded Traders" value={String(stats.fundedTraders)} icon={Trophy} tone="gold" />
+          <StatCard label="Near Breach" value={String(stats.nearBreach)} icon={AlertTriangle} tone="danger" />
+          <StatCard label="In Profit" value={String(stats.inProfit)} icon={TrendingUp} tone="success" />
+          <StatCard label="In Drawdown" value={String(stats.inDrawdown)} icon={TrendingDown} tone="danger" />
+          <StatCard label="Awaiting Sync" value={String(stats.awaitingSync)} icon={RefreshCw} />
+        </div>
 
-        {traders.length === 0 ? (
-          <div className="rounded-xl border border-white/10 bg-white/[0.02] p-12 text-center">
-            <p className="text-zinc-500">No active traders right now.</p>
-          </div>
-        ) : (
-          <div className="overflow-x-auto rounded-xl border border-white/10">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-white/10 bg-white/[0.03] text-left text-xs uppercase tracking-wide text-zinc-500">
-                  <th className="px-4 py-3 font-medium">Trader</th>
-                  <th className="px-4 py-3 font-medium">Account</th>
-                  <th className="px-4 py-3 font-medium">Phase</th>
-                  <th className="px-4 py-3 font-medium text-right">Balance</th>
-                  <th className="px-4 py-3 font-medium text-right">Equity</th>
-                  <th className="px-4 py-3 font-medium text-right">Peak</th>
-                  <th className="px-4 py-3 font-medium">Warnings</th>
-                  <th className="px-4 py-3 font-medium">Last Check</th>
-                </tr>
-              </thead>
-              <tbody>
-                {traders.map((t) => {
-                  const isStale = !t.last_known_check_at || (Date.now() - new Date(t.last_known_check_at).getTime()) > 5 * 60 * 1000;
-                  const hasWarnings = t.hold_time_warnings_notified > 0 || t.drawdown_warning_sent || t.weekend_hold_warnings > 0;
-                  return (
-                    <tr key={t.id} className="border-b border-white/5 hover:bg-white/[0.02]">
-                      <td className="px-4 py-3 text-zinc-300">{t.user_email}</td>
-                      <td className="px-4 py-3 font-mono text-zinc-400">{t.account_login ?? "—"}</td>
-                      <td className="px-4 py-3">
-                        <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${t.current_phase === 3 ? "bg-[#D4AF37]/10 text-[#D4AF37]" : "bg-white/5 text-zinc-300"}`}>
-                          {phaseLabel(t.current_phase)}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-right font-mono text-zinc-300">
-                        {t.last_known_balance !== null ? `₦${t.last_known_balance.toLocaleString()}` : "—"}
-                      </td>
-                      <td className="px-4 py-3 text-right font-mono text-zinc-300">
-                        {t.last_known_equity !== null ? `₦${t.last_known_equity.toLocaleString()}` : "—"}
-                      </td>
-                      <td className="px-4 py-3 text-right font-mono text-zinc-500">
-                        {t.peak_closed_balance !== null ? `₦${t.peak_closed_balance.toLocaleString()}` : "—"}
-                      </td>
-                      <td className="px-4 py-3">
-                        {hasWarnings ? (
-                          <span className="inline-flex items-center gap-1 text-amber-400">
-                            <AlertTriangle className="h-3.5 w-3.5" strokeWidth={1.75} />
-                            {t.hold_time_warnings_notified > 0 && <span className="text-xs">HT:{t.hold_time_warnings_notified}/3</span>}
-                            {t.drawdown_warning_sent && <span className="text-xs">DD</span>}
-                            {t.weekend_hold_warnings > 0 && <span className="text-xs">WK:{t.weekend_hold_warnings}</span>}
-                          </span>
-                        ) : (
-                          <span className="text-xs text-zinc-600">none</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className={`inline-flex items-center gap-1 text-xs ${isStale ? "text-red-400" : "text-zinc-500"}`}>
-                          <Clock className="h-3 w-3" strokeWidth={1.75} />
-                          {timeSince(t.last_known_check_at)}
-                        </span>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
+        <ActiveTraderCharts data={chartData} />
+
+        <ActiveTradersTable initialTraders={initial.traders} initialTotalCount={initial.totalCount} />
       </div>
     </div>
   );
