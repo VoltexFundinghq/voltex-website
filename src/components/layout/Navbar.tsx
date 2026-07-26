@@ -5,7 +5,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
-import { User, Menu, X, LogOut, LayoutDashboard } from "lucide-react";
+import { User, Menu, X, LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { createClient } from "@/lib/supabase/client";
 import { signOutAction } from "@/lib/auth/actions";
@@ -89,10 +89,6 @@ export default function Navbar() {
           <div className="hidden items-center gap-5 lg:flex">
             {loggedIn ? (
               <>
-                <Link href={dashboardHref} className="flex items-center gap-2 rounded-xl px-4 py-2 text-lg font-medium text-white transition-all duration-300 hover:bg-[#D4AF37]/10 hover:text-[#D4AF37]">
-                  <LayoutDashboard size={20} />
-                  Dashboard
-                </Link>
                 <span className="max-w-[160px] truncate text-base text-zinc-400">{displayHandle}</span>
                 <form action={signOutAction}>
                   <button type="submit" className="flex items-center gap-2 rounded-xl px-4 py-2 text-lg font-medium text-white transition-all duration-300 hover:bg-[#D4AF37]/10 hover:text-[#D4AF37]">
@@ -100,16 +96,21 @@ export default function Navbar() {
                     Log Out
                   </button>
                 </form>
+                <Link href={dashboardHref}>
+                  <Button className="h-12 rounded-xl bg-[#D4AF37] px-7 text-lg font-semibold text-black hover:bg-[#F5D573]">Dashboard →</Button>
+                </Link>
               </>
             ) : (
-              <Link href="/login" className="flex items-center gap-2 rounded-xl px-4 py-2 text-lg font-medium text-white transition-all duration-300 hover:bg-[#D4AF37]/10 hover:text-[#D4AF37]">
-                <User size={20} />
-                Login
-              </Link>
+              <>
+                <Link href="/login" className="flex items-center gap-2 rounded-xl px-4 py-2 text-lg font-medium text-white transition-all duration-300 hover:bg-[#D4AF37]/10 hover:text-[#D4AF37]">
+                  <User size={20} />
+                  Login
+                </Link>
+                <Link href="/challenges">
+                  <Button className="h-12 rounded-xl bg-[#D4AF37] px-7 text-lg font-semibold text-black hover:bg-[#F5D573]">Start Challenge →</Button>
+                </Link>
+              </>
             )}
-            <Link href="/challenges">
-              <Button className="h-12 rounded-xl bg-[#D4AF37] px-7 text-lg font-semibold text-black hover:bg-[#F5D573]">Start Challenge →</Button>
-            </Link>
           </div>
 
           <button onClick={() => setOpen(!open)} aria-label="Toggle menu" className="flex h-10 w-10 items-center justify-center rounded-lg border border-[#D4AF37]/30 text-[#D4AF37] lg:hidden">
@@ -132,10 +133,6 @@ export default function Navbar() {
                 <div className="mt-3 flex flex-col gap-3 border-t border-[#D4AF37]/10 pt-4">
                   {loggedIn ? (
                     <>
-                      <Link href={dashboardHref} onClick={() => setOpen(false)} className="flex items-center justify-center gap-2 rounded-xl border border-[#D4AF37]/30 px-4 py-3 text-base font-medium text-white">
-                        <LayoutDashboard size={18} />
-                        Dashboard
-                      </Link>
                       <p className="truncate px-1 text-sm text-zinc-400">{displayHandle}</p>
                       <form action={signOutAction}>
                         <button type="submit" className="flex w-full items-center justify-center gap-2 rounded-xl border border-[#D4AF37]/30 px-4 py-3 text-base font-medium text-white">
@@ -143,16 +140,21 @@ export default function Navbar() {
                           Log Out
                         </button>
                       </form>
+                      <Link href={dashboardHref} onClick={() => setOpen(false)}>
+                        <Button className="w-full rounded-xl bg-[#D4AF37] py-3 text-base font-semibold text-black hover:bg-[#F5D573]">Dashboard →</Button>
+                      </Link>
                     </>
                   ) : (
-                    <Link href="/login" onClick={() => setOpen(false)} className="flex items-center justify-center gap-2 rounded-xl border border-[#D4AF37]/30 px-4 py-3 text-base font-medium text-white">
-                      <User size={18} />
-                      Login
-                    </Link>
+                    <>
+                      <Link href="/login" onClick={() => setOpen(false)} className="flex items-center justify-center gap-2 rounded-xl border border-[#D4AF37]/30 px-4 py-3 text-base font-medium text-white">
+                        <User size={18} />
+                        Login
+                      </Link>
+                      <Link href="/challenges" onClick={() => setOpen(false)}>
+                        <Button className="w-full rounded-xl bg-[#D4AF37] py-3 text-base font-semibold text-black hover:bg-[#F5D573]">Start Challenge →</Button>
+                      </Link>
+                    </>
                   )}
-                  <Link href="/challenges" onClick={() => setOpen(false)}>
-                    <Button className="w-full rounded-xl bg-[#D4AF37] py-3 text-base font-semibold text-black hover:bg-[#F5D573]">Start Challenge →</Button>
-                  </Link>
                 </div>
               </div>
             </motion.div>
