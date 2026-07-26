@@ -35,6 +35,28 @@ export interface TimelineStep {
   reached: boolean;
 }
 
+export interface Journey {
+  id: string; // root challenge id
+  label: string; // e.g. "₦500,000 Challenge — Started Jul 20"
+  timeline: TimelineStep[];
+  assignedAccounts: {
+    account_login: string | null; server: string | null; currentStage: string;
+    challenge_size: string | null; assigned_at: string | null; status: string;
+    password_last_reset_at: string | null; last_sync: string | null;
+  }[];
+}
+
+export interface Alert {
+  label: string;
+  active: boolean;
+  detail: string;
+}
+
+export interface ActivityEvent {
+  text: string;
+  timestamp: string;
+}
+
 export interface UserDetail {
   profile: {
     id: string;
@@ -46,7 +68,9 @@ export interface UserDetail {
     created_at: string;
     last_sign_in_at: string | null;
   };
-  challengeTimeline: TimelineStep[];
+  journeys: Journey[];
+  alerts: Alert[];
+  activityFeed: ActivityEvent[];
   financialSummary: {
     totalChallengePurchases: number;
     totalRevenue: number;
@@ -55,16 +79,6 @@ export interface UserDetail {
     outstandingPayout: number;
     netRevenue: number;
   };
-  assignedAccounts: {
-    account_login: string | null;
-    server: string | null;
-    currentStage: string;
-    challenge_size: string | null;
-    assigned_at: string | null;
-    status: string;
-    password_last_reset_at: string | null;
-    last_sync: string | null;
-  }[];
   isAwaitingProvisioning: boolean;
 }
 
@@ -255,7 +269,7 @@ export async function getUserDetail(userId: string): Promise<UserDetail | null> 
 
   const profileQuery = await serviceClient
     .from("users")
-    .select("id, full_name, email, username, country, phone, created_at")
+    .select("id, full_name, email, username, country, phone, created_at, kyc_status")
     .eq("id", userId)
     .single();
 
@@ -267,7 +281,7 @@ export async function getUserDetail(userId: string): Promise<UserDetail | null> 
 
   const challengesQuery = await serviceClient
     .from("user_challenges")
-    .select("id, challenge_id, trading_account_id, status, current_phase, account_login, created_at, completed_at, last_known_check_at")
+    .select("id, challenge_id, trading_account_id, status, current_phase, account_login, created_at, completed_at, phase1_passed_at, last_known_check_at, hold_time_warnings_notified, drawdown_warning_sent, weekend_hold_warnings")
     .eq("user_id", userId)
     .order("created_at", { ascending: true });
 
@@ -275,11 +289,11 @@ export async function getUserDetail(userId: string): Promise<UserDetail | null> 
 
   const purchasesQuery = await serviceClient
     .from("challenge_purchases")
-    .select("price_paid, payment_status, created_at")
+    .select("price_paid, payment_status, created_at, challenge_size")
     .eq("user_id", userId)
     .order("created_at", { ascending: true });
 
-  const purchaseRows = (purchasesQuery.data as { price_paid: number; payment_status: string; created_at: string }[]) ?? [];
+  const purchaseRows = (purchasesQuery.data as { price_paid: number; payment_status: string; created_at: string; challenge_size: string }[]) ?? [];
   const completed = purchaseRows.filter((p) => p.payment_status === "completed");
   const refunded = purchaseRows.filter((p) => p.payment_status === "refunded");
   const totalRevenue = completed.reduce((s, p) => s + Number(p.price_paid), 0);
@@ -295,41 +309,136 @@ export async function getUserDetail(userId: string): Promise<UserDetail | null> 
   const payoutsPaid = payoutRows.filter((p) => p.status === "approved" || p.status === "completed").reduce((s, p) => s + Number(p.amount), 0);
   const outstandingPayout = payoutRows.filter((p) => p.status === "pending").reduce((s, p) => s + Number(p.amount), 0);
 
+  const correlationQuery = await serviceClient
+    .from("correlation_flags")
+    .select("id")
+    .or(`user_a_id.eq.${userId},user_b_id.eq.${userId}`);
+
   const accountIds = challenges.map((c) => c.trading_account_id).filter((id): id is string => !!id);
   const accountsQuery = accountIds.length > 0
     ? await serviceClient.from("trading_accounts").select("id, login, server, account_size, status, assigned_at, password_last_reset_at").in("id", accountIds)
     : { data: [] as any[] };
   const accountById = new Map((accountsQuery.data as any[] ?? []).map((a) => [a.id, a]));
 
-  const firstChallenge = challenges[0];
-  const firstPurchase = purchaseRows[0];
-  const firstAccount = firstChallenge?.trading_account_id ? accountById.get(firstChallenge.trading_account_id) : null;
+  // --- Group challenges into JOURNEYS. A row with current_phase===3
+  // is ALWAYS a funded-continuation (confirmed: our only path that
+  // creates such a row is handlePassed() upon a real Phase 2 pass) —
+  // it never exists as a genuine root. We link it to the nearest
+  // preceding 'passed' root for the same user by timing. ---
+  const roots = challenges.filter((c) => c.current_phase !== 3).sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+  const continuations = challenges.filter((c) => c.current_phase === 3);
 
-  const phase1Pass = challenges.find((c) => c.status === "passed" && c.current_phase === 1) ?? challenges.find((c) => c.status === "active" && c.current_phase >= 2);
-  const phase2Pass = challenges.find((c) => c.status === "passed" && c.current_phase === 2) ?? challenges.find((c) => c.status === "active" && c.current_phase === 3);
-  const funded = challenges.find((c) => c.status === "active" && c.current_phase === 3);
-  const anyFailed = challenges.find((c) => c.status === "failed");
+  const rootToContinuation = new Map<string, any>();
+  const usedRoots = new Set<string>();
+  for (const cont of continuations) {
+    const candidate = [...roots]
+      .filter((r) => r.status === "passed" && !usedRoots.has(r.id) && new Date(r.completed_at ?? r.created_at).getTime() <= new Date(cont.created_at).getTime())
+      .sort((a, b) => new Date(b.completed_at ?? b.created_at).getTime() - new Date(a.completed_at ?? a.created_at).getTime())[0];
+    if (candidate) {
+      rootToContinuation.set(candidate.id, cont);
+      usedRoots.add(candidate.id);
+    }
+  }
 
-  const timeline: TimelineStep[] = [
-    { label: "Challenge Purchased", timestamp: firstPurchase?.created_at ?? null, reached: !!firstPurchase },
-    { label: "Payment Confirmed", timestamp: completed[0]?.created_at ?? null, reached: completed.length > 0 },
-    { label: "Inventory Assigned", timestamp: firstAccount?.assigned_at ?? firstChallenge?.created_at ?? null, reached: !!firstChallenge?.trading_account_id },
-    { label: "Started Trading", timestamp: firstChallenge?.created_at ?? null, reached: !!firstChallenge },
-    { label: "Passed Phase 1", timestamp: phase1Pass?.completed_at ?? null, reached: !!phase1Pass },
-    { label: "Passed Phase 2", timestamp: phase2Pass?.completed_at ?? null, reached: !!phase2Pass },
-    { label: "Funded", timestamp: funded?.created_at ?? null, reached: !!funded },
+  const journeys: Journey[] = roots
+    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+    .map((root) => {
+      const continuation = rootToContinuation.get(root.id);
+      const rootAccount = root.trading_account_id ? accountById.get(root.trading_account_id) : null;
+      const contAccount = continuation?.trading_account_id ? accountById.get(continuation.trading_account_id) : null;
+
+      const matchingPurchase = purchaseRows.find((p) => Math.abs(new Date(p.created_at).getTime() - new Date(root.created_at).getTime()) < 5 * 60 * 1000)
+        ?? purchaseRows.find((p) => new Date(p.created_at) <= new Date(root.created_at));
+
+      const timeline: TimelineStep[] = [
+        { label: "Challenge Purchased", timestamp: matchingPurchase?.created_at ?? null, reached: !!matchingPurchase },
+        { label: "Payment Confirmed", timestamp: matchingPurchase?.payment_status === "completed" ? matchingPurchase.created_at : null, reached: matchingPurchase?.payment_status === "completed" },
+        { label: "Inventory Assigned", timestamp: rootAccount?.assigned_at ?? root.created_at, reached: !!root.trading_account_id },
+        { label: "Credentials Sent", timestamp: rootAccount?.assigned_at ?? root.created_at, reached: !!root.trading_account_id },
+        { label: "Started Trading", timestamp: root.created_at, reached: true },
+        { label: "Passed Phase 1", timestamp: root.phase1_passed_at, reached: !!root.phase1_passed_at || root.current_phase >= 2 || root.status === "passed" },
+        { label: "Passed Phase 2", timestamp: root.status === "passed" ? root.completed_at : null, reached: root.status === "passed" },
+        { label: "Funded", timestamp: continuation?.created_at ?? null, reached: !!continuation },
+      ];
+
+      const journeyPayouts = continuation
+        ? payoutRows.filter((p) => new Date(p.requested_at) >= new Date(continuation.created_at))
+        : [];
+
+      journeyPayouts.forEach((p, i) => {
+        timeline.push({ label: `Payout ${i + 1}`, timestamp: p.requested_at, reached: true });
+        if (p.processed_at) {
+          timeline.push({ label: `Balance Reset (after Payout ${i + 1})`, timestamp: p.processed_at, reached: true });
+        }
+      });
+
+      if (root.status === "failed") {
+        timeline.push({ label: "Retired (Failed)", timestamp: root.completed_at, reached: true });
+      } else if (continuation && continuation.status === "failed") {
+        timeline.push({ label: "Retired (Failed)", timestamp: continuation.completed_at, reached: true });
+      }
+
+      const journeyAccounts = [root, continuation].filter(Boolean).map((c) => {
+        const account = c.trading_account_id ? accountById.get(c.trading_account_id) : null;
+        return {
+          account_login: c.account_login,
+          server: account?.server ?? null,
+          currentStage: currentStageLabel(c.status, c.current_phase),
+          challenge_size: account?.account_size ? `₦${Number(account.account_size).toLocaleString()}` : null,
+          assigned_at: account?.assigned_at ?? null,
+          status: account?.status ?? c.status,
+          password_last_reset_at: account?.password_last_reset_at ?? null,
+          last_sync: c.last_known_check_at ?? null,
+        };
+      });
+
+      const label = `${rootAccount?.account_size ? `₦${Number(rootAccount.account_size).toLocaleString()}` : root.challenge_id} — Started ${new Date(root.created_at).toLocaleDateString()}`;
+
+      return { id: root.id, label, timeline, assignedAccounts: journeyAccounts };
+    });
+
+  // --- Alerts: real, live-derived ---
+  const hasRuleViolation = challenges.some((c) => c.status === "failed" || c.hold_time_warnings_notified > 0 || c.drawdown_warning_sent || c.weekend_hold_warnings > 0)
+    || (correlationQuery.data && correlationQuery.data.length > 0);
+
+  const alerts: Alert[] = [
+    { label: "Failed Login Attempts", active: false, detail: "Not tracked yet" },
+    { label: "Payment Dispute", active: false, detail: "Not tracked yet" },
+    { label: "Rule Violation", active: !!hasRuleViolation, detail: hasRuleViolation ? "Warning, breach, or correlation flag on record" : "None" },
+    { label: "KYC Pending", active: profile.kyc_status === "pending", detail: profile.kyc_status },
+    { label: "Awaiting Payout", active: outstandingPayout > 0, detail: outstandingPayout > 0 ? `₦${outstandingPayout.toLocaleString()} pending` : "None" },
   ];
 
-  payoutRows.forEach((p, i) => {
-    timeline.push({ label: `Payout ${i + 1}`, timestamp: p.requested_at, reached: true });
-    if (p.processed_at) {
-      timeline.push({ label: `Balance Reset (after Payout ${i + 1})`, timestamp: p.processed_at, reached: true });
+  // --- Activity Feed: real events, natural language ---
+  const events: ActivityEvent[] = [];
+  for (const p of purchaseRows) {
+    events.push({ text: `Purchased ${p.challenge_size} Challenge`, timestamp: p.created_at });
+    if (p.payment_status === "completed") {
+      events.push({ text: "Payment confirmed", timestamp: p.created_at });
     }
-  });
-
-  if (anyFailed) {
-    timeline.push({ label: "Retired (Failed)", timestamp: anyFailed.completed_at, reached: true });
   }
+  for (const root of roots) {
+    const rootAccount = root.trading_account_id ? accountById.get(root.trading_account_id) : null;
+    if (root.trading_account_id) {
+      events.push({ text: "Account assigned", timestamp: rootAccount?.assigned_at ?? root.created_at });
+      events.push({ text: "Credentials emailed", timestamp: rootAccount?.assigned_at ?? root.created_at });
+    }
+    if (root.phase1_passed_at) events.push({ text: "Passed Phase 1", timestamp: root.phase1_passed_at });
+    if (root.status === "passed") events.push({ text: "Passed Phase 2", timestamp: root.completed_at });
+    if (root.status === "failed") events.push({ text: "Challenge failed", timestamp: root.completed_at });
+  }
+  for (const cont of continuations) {
+    events.push({ text: "Became a funded trader", timestamp: cont.created_at });
+    if (cont.status === "failed") events.push({ text: "Funded account failed", timestamp: cont.completed_at });
+  }
+  for (const p of payoutRows) {
+    events.push({ text: `Requested payout of ₦${Number(p.amount).toLocaleString()}`, timestamp: p.requested_at });
+    if (p.status === "approved" || p.status === "completed") {
+      events.push({ text: "Payout approved", timestamp: p.processed_at ?? p.requested_at });
+    }
+  }
+
+  events.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
   return {
     profile: {
@@ -342,7 +451,9 @@ export async function getUserDetail(userId: string): Promise<UserDetail | null> 
       created_at: profile.created_at,
       last_sign_in_at: lastSignInAt,
     },
-    challengeTimeline: timeline,
+    journeys,
+    alerts,
+    activityFeed: events,
     financialSummary: {
       totalChallengePurchases: purchaseRows.length,
       totalRevenue,
@@ -351,21 +462,6 @@ export async function getUserDetail(userId: string): Promise<UserDetail | null> 
       outstandingPayout,
       netRevenue: totalRevenue - refundsTotal - payoutsPaid,
     },
-    assignedAccounts: challenges
-      .filter((c) => c.trading_account_id)
-      .map((c) => {
-        const account = accountById.get(c.trading_account_id);
-        return {
-          account_login: c.account_login,
-          server: account?.server ?? null,
-          currentStage: currentStageLabel(c.status, c.current_phase),
-          challenge_size: account?.account_size ? `₦${Number(account.account_size).toLocaleString()}` : null,
-          assigned_at: account?.assigned_at ?? null,
-          status: account?.status ?? c.status,
-          password_last_reset_at: account?.password_last_reset_at ?? null,
-          last_sync: c.last_known_check_at ?? null,
-        };
-      }),
     isAwaitingProvisioning: challenges.some((c) => c.status === "awaiting_allocation"),
   };
 }

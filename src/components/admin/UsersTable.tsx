@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import {
   Search, ChevronDown, ChevronRight, MoreVertical, Ban, CheckCircle2, Mail, Key,
-  FileText, Eye, Wallet, RotateCw, Circle,
+  FileText, Eye, Wallet, RotateCw, Circle, AlertTriangle,
 } from "lucide-react";
 
 interface UserListRow {
@@ -27,21 +27,40 @@ interface TimelineStep {
   reached: boolean;
 }
 
-interface UserDetail {
-  profile: {
-    id: string; full_name: string | null; email: string; username: string | null;
-    country: string | null; phone: string | null; created_at: string; last_sign_in_at: string | null;
-  };
-  challengeTimeline: TimelineStep[];
-  financialSummary: {
-    totalChallengePurchases: number; totalRevenue: number; refunds: number;
-    payoutsPaid: number; outstandingPayout: number; netRevenue: number;
-  };
+interface Journey {
+  id: string;
+  label: string;
+  timeline: TimelineStep[];
   assignedAccounts: {
     account_login: string | null; server: string | null; currentStage: string;
     challenge_size: string | null; assigned_at: string | null; status: string;
     password_last_reset_at: string | null; last_sync: string | null;
   }[];
+}
+
+interface Alert {
+  label: string;
+  active: boolean;
+  detail: string;
+}
+
+interface ActivityEvent {
+  text: string;
+  timestamp: string;
+}
+
+interface UserDetail {
+  profile: {
+    id: string; full_name: string | null; email: string; username: string | null;
+    country: string | null; phone: string | null; created_at: string; last_sign_in_at: string | null;
+  };
+  journeys: Journey[];
+  alerts: Alert[];
+  activityFeed: ActivityEvent[];
+  financialSummary: {
+    totalChallengePurchases: number; totalRevenue: number; refunds: number;
+    payoutsPaid: number; outstandingPayout: number; netRevenue: number;
+  };
   isAwaitingProvisioning: boolean;
 }
 
@@ -55,7 +74,7 @@ const FILTERS = [
   { value: "pending_provisioning", label: "Pending Provisioning" },
 ];
 
-const TABS = ["Profile", "Challenge Timeline", "Assigned Accounts", "Financial", "Audit Log"] as const;
+const TABS = ["Profile", "Journeys", "Financial", "Activity"] as const;
 type Tab = (typeof TABS)[number];
 
 const PAGE_SIZE = 20;
@@ -75,6 +94,17 @@ function timeAgo(dateStr: string | null): string {
   if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
   if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
   return `${Math.floor(seconds / 86400)}d ago`;
+}
+function activityGroupLabel(dateStr: string): string {
+  const date = new Date(dateStr);
+  const today = new Date();
+  const isToday = date.toDateString() === today.toDateString();
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+  const isYesterday = date.toDateString() === yesterday.toDateString();
+  if (isToday) return "Today";
+  if (isYesterday) return "Yesterday";
+  return date.toLocaleDateString();
 }
 
 function statusBadge(status: string): string {
@@ -117,7 +147,6 @@ function ActionsMenu({
       : { label: "Suspend User", icon: Ban, action: () => { onSuspendToggle(user.id, true); setOpen(false); }, live: true },
     { label: "Reset Password", icon: Key, action: () => setOpen(false), live: false },
     { label: "Send Email", icon: Mail, action: () => setOpen(false), live: false },
-    { label: "View Audit Log", icon: Eye, action: () => setOpen(false), live: false },
   ];
 
   return (
@@ -153,10 +182,34 @@ function ActionsMenu({
   );
 }
 
+function AlertsPanel({ alerts }: { alerts: Alert[] }) {
+  const activeAlerts = alerts.filter((a) => a.active);
+  return (
+    <div className="mb-4 rounded-lg border border-white/10 bg-black/30 p-3">
+      <div className="flex flex-wrap gap-2">
+        {alerts.map((a) => (
+          <span
+            key={a.label}
+            title={a.detail}
+            className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${
+              a.active ? "bg-red-400/10 text-red-400" : "bg-white/5 text-zinc-600"
+            }`}
+          >
+            <AlertTriangle className="h-3 w-3" strokeWidth={1.75} />
+            {a.label}
+          </span>
+        ))}
+      </div>
+      {activeAlerts.length === 0 && <p className="mt-1.5 text-xs text-zinc-600">No active alerts.</p>}
+    </div>
+  );
+}
+
 function UserDetailPanel({ userId, onProvisioned }: { userId: string; onProvisioned: () => void }) {
   const [detail, setDetail] = useState<UserDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<Tab>("Profile");
+  const [activeJourneyId, setActiveJourneyId] = useState<string | null>(null);
   const [provisioning, setProvisioning] = useState(false);
   const [provisionMsg, setProvisionMsg] = useState<string | null>(null);
 
@@ -164,7 +217,11 @@ function UserDetailPanel({ userId, onProvisioned }: { userId: string; onProvisio
     setLoading(true);
     fetch(`/api/admin/users/${userId}`)
       .then((r) => r.json())
-      .then((data) => { setDetail(data); setLoading(false); })
+      .then((data) => {
+        setDetail(data);
+        setActiveJourneyId(data.journeys?.[0]?.id ?? null);
+        setLoading(false);
+      })
       .catch(() => setLoading(false));
   }, [userId]);
 
@@ -189,9 +246,15 @@ function UserDetailPanel({ userId, onProvisioned }: { userId: string; onProvisio
   if (loading) return <div className="bg-black/30 p-6 text-sm text-zinc-500">Loading profile...</div>;
   if (!detail) return <div className="bg-black/30 p-6 text-sm text-zinc-600">Could not load user detail.</div>;
 
+  const activeJourney = detail.journeys.find((j) => j.id === activeJourneyId) ?? detail.journeys[0];
+
+  let lastGroupLabel = "";
+
   return (
-    <div className="bg-black/30">
-      <div className="flex flex-wrap gap-1 border-b border-white/10 px-6 pt-4">
+    <div className="bg-black/30 p-6">
+      <AlertsPanel alerts={detail.alerts} />
+
+      <div className="flex flex-wrap gap-1 border-b border-white/10">
         {TABS.map((tab) => (
           <button
             key={tab}
@@ -205,7 +268,7 @@ function UserDetailPanel({ userId, onProvisioned }: { userId: string; onProvisio
         ))}
       </div>
 
-      <div className="p-6">
+      <div className="pt-6">
         {activeTab === "Profile" && (
           <div className="grid gap-6 md:grid-cols-2">
             <div className="space-y-1.5 text-sm">
@@ -238,56 +301,72 @@ function UserDetailPanel({ userId, onProvisioned }: { userId: string; onProvisio
           </div>
         )}
 
-        {activeTab === "Challenge Timeline" && (
-          detail.challengeTimeline.length === 0 ? (
-            <p className="text-sm text-zinc-600">No activity yet.</p>
+        {activeTab === "Journeys" && (
+          detail.journeys.length === 0 ? (
+            <p className="text-sm text-zinc-600">No challenges yet.</p>
           ) : (
-            <div className="space-y-0">
-              {detail.challengeTimeline.map((step, i) => (
-                <div key={i} className="flex gap-3">
-                  <div className="flex flex-col items-center">
-                    <div className={`flex h-5 w-5 items-center justify-center rounded-full ${step.reached ? "bg-[#D4AF37]" : "bg-white/10"}`}>
-                      {step.reached ? (
-                        <CheckCircle2 className="h-3.5 w-3.5 text-black" strokeWidth={2.5} />
-                      ) : (
-                        <Circle className="h-2.5 w-2.5 text-zinc-600" strokeWidth={2} />
-                      )}
+            <div>
+              {detail.journeys.length > 1 && (
+                <div className="mb-4 flex flex-wrap gap-1.5">
+                  {detail.journeys.map((j) => (
+                    <button
+                      key={j.id}
+                      onClick={() => setActiveJourneyId(j.id)}
+                      className={`rounded-full px-3 py-1.5 text-xs font-medium ${
+                        activeJourneyId === j.id ? "bg-[#D4AF37] text-black" : "bg-white/5 text-zinc-400 hover:bg-white/10"
+                      }`}
+                    >
+                      {j.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {activeJourney && (
+                <div className="grid gap-6 md:grid-cols-2">
+                  <div>
+                    <h4 className="mb-3 text-xs font-semibold uppercase tracking-wide text-[#D4AF37]">Timeline</h4>
+                    <div>
+                      {activeJourney.timeline.map((step, i) => (
+                        <div key={i} className="flex gap-3">
+                          <div className="flex flex-col items-center">
+                            <div className={`flex h-5 w-5 items-center justify-center rounded-full ${step.reached ? "bg-[#D4AF37]" : "bg-white/10"}`}>
+                              {step.reached ? <CheckCircle2 className="h-3.5 w-3.5 text-black" strokeWidth={2.5} /> : <Circle className="h-2.5 w-2.5 text-zinc-600" strokeWidth={2} />}
+                            </div>
+                            {i < activeJourney.timeline.length - 1 && (
+                              <div className={`w-px flex-1 ${step.reached ? "bg-[#D4AF37]/40" : "bg-white/10"}`} style={{ minHeight: "22px" }} />
+                            )}
+                          </div>
+                          <div className="pb-5">
+                            <p className={`text-sm ${step.reached ? "text-zinc-200" : "text-zinc-600"}`}>{step.label}</p>
+                            <p className="text-xs text-zinc-600">{step.timestamp ? fmtDateTime(step.timestamp) : "Not yet reached"}</p>
+                          </div>
+                        </div>
+                      ))}
                     </div>
-                    {i < detail.challengeTimeline.length - 1 && (
-                      <div className={`w-px flex-1 ${step.reached ? "bg-[#D4AF37]/40" : "bg-white/10"}`} style={{ minHeight: "24px" }} />
-                    )}
                   </div>
-                  <div className="pb-6">
-                    <p className={`text-sm ${step.reached ? "text-zinc-200" : "text-zinc-600"}`}>{step.label}</p>
-                    <p className="text-xs text-zinc-600">{step.timestamp ? fmtDateTime(step.timestamp) : "Not yet reached"}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )
-        )}
-
-        {activeTab === "Assigned Accounts" && (
-          detail.assignedAccounts.length === 0 ? (
-            <p className="text-sm text-zinc-600">No accounts assigned yet.</p>
-          ) : (
-            <div className="space-y-2">
-              {detail.assignedAccounts.map((a, i) => (
-                <div key={i} className="rounded-lg border border-white/10 p-3 text-xs">
-                  <div className="flex items-center justify-between">
-                    <p className="font-mono text-sm text-zinc-200">{a.account_login ?? "—"}</p>
-                    <span className={`rounded-full px-2 py-0.5 font-medium ${statusBadge(a.currentStage)}`}>{a.currentStage}</span>
-                  </div>
-                  <div className="mt-2 grid grid-cols-2 gap-1 text-zinc-500 sm:grid-cols-3">
-                    <span>Server: <span className="text-zinc-300">{a.server ?? "—"}</span></span>
-                    <span>Challenge: <span className="text-zinc-300">{a.challenge_size ?? "—"}</span></span>
-                    <span>Assigned: <span className="text-zinc-300">{fmtDate(a.assigned_at)}</span></span>
-                    <span>Status: <span className="text-zinc-300">{a.status}</span></span>
-                    <span>Password Reset: <span className="text-zinc-300">{fmtDate(a.password_last_reset_at)}</span></span>
-                    <span>Last Sync: <span className="text-zinc-300">{timeAgo(a.last_sync)}</span></span>
+                  <div>
+                    <h4 className="mb-3 text-xs font-semibold uppercase tracking-wide text-[#D4AF37]">Assigned Accounts</h4>
+                    <div className="space-y-2">
+                      {activeJourney.assignedAccounts.map((a, i) => (
+                        <div key={i} className="rounded-lg border border-white/10 p-3 text-xs">
+                          <div className="flex items-center justify-between">
+                            <p className="font-mono text-sm text-zinc-200">{a.account_login ?? "—"}</p>
+                            <span className={`rounded-full px-2 py-0.5 font-medium ${statusBadge(a.currentStage)}`}>{a.currentStage}</span>
+                          </div>
+                          <div className="mt-2 grid grid-cols-2 gap-1 text-zinc-500">
+                            <span>Server: <span className="text-zinc-300">{a.server ?? "—"}</span></span>
+                            <span>Challenge: <span className="text-zinc-300">{a.challenge_size ?? "—"}</span></span>
+                            <span>Assigned: <span className="text-zinc-300">{fmtDate(a.assigned_at)}</span></span>
+                            <span>Status: <span className="text-zinc-300">{a.status}</span></span>
+                            <span>Password Reset: <span className="text-zinc-300">{fmtDate(a.password_last_reset_at)}</span></span>
+                            <span>Last Sync: <span className="text-zinc-300">{timeAgo(a.last_sync)}</span></span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 </div>
-              ))}
+              )}
             </div>
           )
         )}
@@ -303,8 +382,29 @@ function UserDetailPanel({ userId, onProvisioned }: { userId: string; onProvisio
           </div>
         )}
 
-        {activeTab === "Audit Log" && (
-          <p className="text-sm text-zinc-600">Audit logging isn't built yet — this tab will show every admin action taken on this account once it exists.</p>
+        {activeTab === "Activity" && (
+          detail.activityFeed.length === 0 ? (
+            <p className="text-sm text-zinc-600">No activity yet.</p>
+          ) : (
+            <div className="space-y-3">
+              {detail.activityFeed.map((event, i) => {
+                const groupLabel = activityGroupLabel(event.timestamp);
+                const showGroupLabel = groupLabel !== lastGroupLabel;
+                lastGroupLabel = groupLabel;
+                return (
+                  <div key={i}>
+                    {showGroupLabel && <p className="mb-1.5 mt-4 text-xs font-semibold uppercase tracking-wide text-zinc-600 first:mt-0">{groupLabel}</p>}
+                    <div className="flex items-baseline gap-3">
+                      <span className="w-12 flex-shrink-0 font-mono text-xs text-zinc-600">
+                        {new Date(event.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                      </span>
+                      <span className="text-sm text-zinc-300">{event.text}</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )
         )}
       </div>
     </div>
