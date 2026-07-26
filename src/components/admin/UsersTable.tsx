@@ -1,7 +1,10 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Search, ChevronDown, ChevronRight, MoreVertical, Ban, CheckCircle2, Mail, Key, FileText, Eye, Wallet } from "lucide-react";
+import {
+  Search, ChevronDown, ChevronRight, MoreVertical, Ban, CheckCircle2, Mail, Key,
+  FileText, Eye, Wallet, RotateCw,
+} from "lucide-react";
 
 interface UserListRow {
   id: string;
@@ -12,9 +15,7 @@ interface UserListRow {
   is_admin: boolean;
   is_suspended: boolean;
   created_at: string;
-  activeChallengeStatus: string | null;
-  activeChallengePhase: number | null;
-  activeMt5Login: string | null;
+  currentChallengeLabel: string;
   totalPurchases: number;
   lifetimeSpend: number;
   lastActivity: string | null;
@@ -25,12 +26,21 @@ interface UserDetail {
     id: string; full_name: string | null; email: string; username: string | null;
     country: string | null; phone: string | null; created_at: string; last_sign_in_at: string | null;
   };
-  challengeHistory: { id: string; challenge_size: string; created_at: string; current_phase: number; status: string; account_login: string | null }[];
+  challengeHistory: {
+    id: string; challenge_size: string; account_size: number | null; created_at: string;
+    completed_at: string | null; current_phase: number; status: string; account_login: string | null;
+  }[];
   financialSummary: {
     lifetimeSpend: number; totalPurchases: number; activeChallenges: number; passedChallenges: number;
     failedChallenges: number; fundedAccounts: number; totalPayouts: number; pendingPayouts: number;
+    lastPurchaseDate: string | null;
   };
-  tradingAccounts: { account_login: string | null; broker: string | null; server: string | null; status: string }[];
+  tradingAccounts: {
+    account_login: string | null; broker: string | null; server: string | null; pa_label: string | null;
+    status: string; assigned_at: string | null; last_reset_at: string | null;
+    vpsSlotLabel: string | null; vpsHealthy: boolean | null;
+  }[];
+  isAwaitingProvisioning: boolean;
 }
 
 const FILTERS = [
@@ -43,15 +53,19 @@ const FILTERS = [
   { value: "pending_provisioning", label: "Pending Provisioning" },
 ];
 
+const TABS = ["Profile", "Challenges", "Trading Accounts", "Financial", "Audit Log"] as const;
+type Tab = (typeof TABS)[number];
+
 const PAGE_SIZE = 20;
 
-function phaseLabel(status: string | null, phase: number | null): string {
-  if (!status) return "—";
-  if (status === "active" && phase === 3) return "Funded";
-  if (status === "active") return `Phase ${phase}`;
-  return status;
+function fmtDate(dateStr: string | null): string {
+  if (!dateStr) return "—";
+  return new Date(dateStr).toLocaleDateString();
 }
-
+function fmtDateTime(dateStr: string | null): string {
+  if (!dateStr) return "—";
+  return new Date(dateStr).toLocaleString();
+}
 function timeAgo(dateStr: string | null): string {
   if (!dateStr) return "never";
   const seconds = Math.floor((Date.now() - new Date(dateStr).getTime()) / 1000);
@@ -61,7 +75,32 @@ function timeAgo(dateStr: string | null): string {
   return `${Math.floor(seconds / 86400)}d ago`;
 }
 
-function ActionsMenu({ user, onSuspendToggle }: { user: UserListRow; onSuspendToggle: (id: string, suspend: boolean) => void }) {
+function statusBadge(status: string): string {
+  const s = status.toLowerCase();
+  if (["active", "passed", "funded", "available"].includes(s)) return "bg-emerald-400/10 text-emerald-400";
+  if (["assigned"].includes(s)) return "bg-blue-400/10 text-blue-400";
+  if (["awaiting_allocation", "pending", "resetting"].includes(s)) return "bg-amber-400/10 text-amber-400";
+  if (["failed", "suspended"].includes(s)) return "bg-red-400/10 text-red-400";
+  return "bg-white/5 text-zinc-400";
+}
+
+function resultLabel(status: string, phase: number): string {
+  if (status === "active" && phase === 3) return "Funded";
+  if (status === "active") return `In Progress — Phase ${phase}`;
+  return status;
+}
+
+function ActionsMenu({
+  user,
+  isAwaitingProvisioning,
+  onSuspendToggle,
+  onRetryProvisioning,
+}: {
+  user: UserListRow;
+  isAwaitingProvisioning: boolean;
+  onSuspendToggle: (id: string, suspend: boolean) => void;
+  onRetryProvisioning: (id: string) => void;
+}) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -74,15 +113,15 @@ function ActionsMenu({ user, onSuspendToggle }: { user: UserListRow; onSuspendTo
   }, []);
 
   const items = [
-    { label: "View Profile", icon: Eye, action: () => setOpen(false), live: true },
     { label: "View Purchases", icon: FileText, action: () => setOpen(false), live: true },
     { label: "View Trading Accounts", icon: Wallet, action: () => setOpen(false), live: true },
+    ...(isAwaitingProvisioning ? [{ label: "Provision Account", icon: RotateCw, action: () => { onRetryProvisioning(user.id); setOpen(false); }, live: true }] : []),
     user.is_suspended
-      ? { label: "Enable User", icon: CheckCircle2, action: () => { onSuspendToggle(user.id, false); setOpen(false); }, live: true }
+      ? { label: "Activate User", icon: CheckCircle2, action: () => { onSuspendToggle(user.id, false); setOpen(false); }, live: true }
       : { label: "Suspend User", icon: Ban, action: () => { onSuspendToggle(user.id, true); setOpen(false); }, live: true },
     { label: "Reset Password", icon: Key, action: () => setOpen(false), live: false },
     { label: "Send Email", icon: Mail, action: () => setOpen(false), live: false },
-    { label: "View Audit Log", icon: FileText, action: () => setOpen(false), live: false },
+    { label: "View Audit Log", icon: Eye, action: () => setOpen(false), live: false },
   ];
 
   return (
@@ -94,7 +133,7 @@ function ActionsMenu({ user, onSuspendToggle }: { user: UserListRow; onSuspendTo
         <MoreVertical className="h-4 w-4" strokeWidth={1.75} />
       </button>
       {open && (
-        <div className="absolute right-0 top-full z-20 mt-1 w-52 rounded-lg border border-white/10 bg-[#0a0a0a] py-1 shadow-xl">
+        <div className="absolute right-0 top-full z-20 mt-1 w-56 rounded-lg border border-white/10 bg-[#0a0a0a] py-1 shadow-xl">
           {items.map((item) => {
             const Icon = item.icon;
             return (
@@ -118,9 +157,12 @@ function ActionsMenu({ user, onSuspendToggle }: { user: UserListRow; onSuspendTo
   );
 }
 
-function UserDetailPanel({ userId }: { userId: string }) {
+function UserDetailPanel({ userId, onProvisioned }: { userId: string; onProvisioned: () => void }) {
   const [detail, setDetail] = useState<UserDetail | null>(null);
   const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState<Tab>("Profile");
+  const [provisioning, setProvisioning] = useState(false);
+  const [provisionMsg, setProvisionMsg] = useState<string | null>(null);
 
   useEffect(() => {
     setLoading(true);
@@ -130,71 +172,143 @@ function UserDetailPanel({ userId }: { userId: string }) {
       .catch(() => setLoading(false));
   }, [userId]);
 
-  if (loading) {
-    return <div className="p-6 text-sm text-zinc-500">Loading profile...</div>;
+  async function handleRetryProvisioning() {
+    setProvisioning(true);
+    setProvisionMsg(null);
+    try {
+      const res = await fetch(`/api/admin/users/${userId}/retry-provisioning`, { method: "POST" });
+      const data = await res.json();
+      if (res.ok) {
+        setProvisionMsg("Account allocated successfully.");
+        onProvisioned();
+      } else {
+        setProvisionMsg(data.error ?? "Failed to provision.");
+      }
+    } catch {
+      setProvisionMsg("Failed to provision.");
+    }
+    setProvisioning(false);
   }
-  if (!detail) {
-    return <div className="p-6 text-sm text-zinc-600">Could not load user detail.</div>;
-  }
+
+  if (loading) return <div className="bg-black/30 p-6 text-sm text-zinc-500">Loading profile...</div>;
+  if (!detail) return <div className="bg-black/30 p-6 text-sm text-zinc-600">Could not load user detail.</div>;
 
   return (
-    <div className="grid gap-6 bg-black/30 p-6 md:grid-cols-2">
-      <div>
-        <h4 className="mb-3 text-xs font-semibold uppercase tracking-wide text-[#D4AF37]">Profile</h4>
-        <div className="space-y-1.5 text-sm">
-          <p className="text-zinc-400">Full Name: <span className="text-zinc-200">{detail.profile.full_name ?? "—"}</span></p>
-          <p className="text-zinc-400">Email: <span className="text-zinc-200">{detail.profile.email}</span></p>
-          <p className="text-zinc-400">Username: <span className="text-zinc-200">{detail.profile.username ?? "—"}</span></p>
-          <p className="text-zinc-400">Country: <span className="text-zinc-200">{detail.profile.country ?? "—"}</span></p>
-          <p className="text-zinc-400">Phone: <span className="text-zinc-200">{detail.profile.phone ?? "—"}</span></p>
-          <p className="text-zinc-400">Registered: <span className="text-zinc-200">{new Date(detail.profile.created_at).toLocaleDateString()}</span></p>
-          <p className="text-zinc-400">Last Login: <span className="text-zinc-200">{detail.profile.last_sign_in_at ? new Date(detail.profile.last_sign_in_at).toLocaleString() : "never"}</span></p>
-          <p className="font-mono text-xs text-zinc-600">ID: {detail.profile.id}</p>
-        </div>
-
-        <h4 className="mb-3 mt-6 text-xs font-semibold uppercase tracking-wide text-[#D4AF37]">Financial Summary</h4>
-        <div className="grid grid-cols-2 gap-2 text-sm">
-          <p className="text-zinc-400">Lifetime Spend: <span className="text-zinc-200">₦{detail.financialSummary.lifetimeSpend.toLocaleString()}</span></p>
-          <p className="text-zinc-400">Total Purchases: <span className="text-zinc-200">{detail.financialSummary.totalPurchases}</span></p>
-          <p className="text-zinc-400">Active: <span className="text-zinc-200">{detail.financialSummary.activeChallenges}</span></p>
-          <p className="text-zinc-400">Passed: <span className="text-zinc-200">{detail.financialSummary.passedChallenges}</span></p>
-          <p className="text-zinc-400">Failed: <span className="text-zinc-200">{detail.financialSummary.failedChallenges}</span></p>
-          <p className="text-zinc-400">Funded: <span className="text-zinc-200">{detail.financialSummary.fundedAccounts}</span></p>
-          <p className="text-zinc-400">Total Payouts: <span className="text-zinc-200">₦{detail.financialSummary.totalPayouts.toLocaleString()}</span></p>
-          <p className="text-zinc-400">Pending Payouts: <span className="text-zinc-200">₦{detail.financialSummary.pendingPayouts.toLocaleString()}</span></p>
-        </div>
+    <div className="bg-black/30">
+      <div className="flex gap-1 border-b border-white/10 px-6 pt-4">
+        {TABS.map((tab) => (
+          <button
+            key={tab}
+            onClick={() => setActiveTab(tab)}
+            className={`rounded-t-lg px-3 py-2 text-xs font-medium transition-colors ${
+              activeTab === tab ? "border-b-2 border-[#D4AF37] text-[#D4AF37]" : "text-zinc-500 hover:text-zinc-300"
+            }`}
+          >
+            {tab}
+          </button>
+        ))}
       </div>
 
-      <div>
-        <h4 className="mb-3 text-xs font-semibold uppercase tracking-wide text-[#D4AF37]">Challenge History</h4>
-        {detail.challengeHistory.length === 0 ? (
-          <p className="text-sm text-zinc-600">No challenges yet.</p>
-        ) : (
-          <div className="space-y-2">
-            {detail.challengeHistory.map((c) => (
-              <div key={c.id} className="flex items-center justify-between rounded-lg border border-white/10 px-3 py-2 text-xs">
-                <div>
-                  <p className="text-zinc-300">{c.challenge_size}</p>
-                  <p className="text-zinc-600">{c.account_login ?? "—"} · {new Date(c.created_at).toLocaleDateString()}</p>
-                </div>
-                <span className="rounded-full bg-white/5 px-2 py-0.5 text-zinc-400">{phaseLabel(c.status, c.current_phase)}</span>
+      <div className="p-6">
+        {activeTab === "Profile" && (
+          <div className="grid gap-6 md:grid-cols-2">
+            <div className="space-y-1.5 text-sm">
+              <p className="text-zinc-400">Full Name: <span className="text-zinc-200">{detail.profile.full_name ?? "—"}</span></p>
+              <p className="text-zinc-400">Email: <span className="text-zinc-200">{detail.profile.email}</span></p>
+              <p className="text-zinc-400">Username: <span className="text-zinc-200">{detail.profile.username ?? "—"}</span></p>
+              <p className="text-zinc-400">Country: <span className="text-zinc-200">{detail.profile.country ?? "—"}</span></p>
+              <p className="text-zinc-400">Phone: <span className="text-zinc-200">{detail.profile.phone ?? "—"}</span></p>
+              <p className="text-zinc-400">Registered: <span className="text-zinc-200">{fmtDate(detail.profile.created_at)}</span></p>
+              <p className="text-zinc-400">Last Login: <span className="text-zinc-200">{fmtDateTime(detail.profile.last_sign_in_at)}</span></p>
+              <p className="font-mono text-xs text-zinc-600">ID: {detail.profile.id}</p>
+            </div>
+            <div>
+              <h4 className="mb-3 text-xs font-semibold uppercase tracking-wide text-[#D4AF37]">Admin Actions</h4>
+              <div className="flex flex-wrap gap-2">
+                {detail.isAwaitingProvisioning && (
+                  <button
+                    onClick={handleRetryProvisioning}
+                    disabled={provisioning}
+                    className="rounded-lg border border-[#D4AF37]/30 bg-[#D4AF37]/10 px-3 py-1.5 text-xs font-medium text-[#D4AF37] hover:bg-[#D4AF37]/20 disabled:opacity-50"
+                  >
+                    {provisioning ? "Provisioning..." : "Provision Account"}
+                  </button>
+                )}
+                <button disabled className="cursor-not-allowed rounded-lg border border-white/10 px-3 py-1.5 text-xs text-zinc-600">Reset Password (soon)</button>
+                <button disabled className="cursor-not-allowed rounded-lg border border-white/10 px-3 py-1.5 text-xs text-zinc-600">Send Email (soon)</button>
               </div>
-            ))}
+              {provisionMsg && <p className="mt-2 text-xs text-zinc-400">{provisionMsg}</p>}
+            </div>
           </div>
         )}
 
-        <h4 className="mb-3 mt-6 text-xs font-semibold uppercase tracking-wide text-[#D4AF37]">Trading Accounts</h4>
-        {detail.tradingAccounts.length === 0 ? (
-          <p className="text-sm text-zinc-600">No trading accounts linked.</p>
-        ) : (
-          <div className="space-y-2">
-            {detail.tradingAccounts.map((a, i) => (
-              <div key={i} className="rounded-lg border border-white/10 px-3 py-2 text-xs">
-                <p className="font-mono text-zinc-300">{a.account_login ?? "—"}</p>
-                <p className="text-zinc-600">{a.broker} · {a.server} · {a.status}</p>
-              </div>
-            ))}
+        {activeTab === "Challenges" && (
+          detail.challengeHistory.length === 0 ? (
+            <p className="text-sm text-zinc-600">No challenges yet.</p>
+          ) : (
+            <div className="space-y-2">
+              {detail.challengeHistory.map((c) => (
+                <div key={c.id} className="rounded-lg border border-white/10 p-3 text-xs">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm text-zinc-200">{c.account_size ? `₦${c.account_size.toLocaleString()}` : c.challenge_size}</p>
+                    <span className={`rounded-full px-2 py-0.5 font-medium ${statusBadge(c.status)}`}>{resultLabel(c.status, c.current_phase)}</span>
+                  </div>
+                  <div className="mt-2 grid grid-cols-2 gap-1 text-zinc-500 sm:grid-cols-4">
+                    <span>Purchased: <span className="text-zinc-300">{fmtDate(c.created_at)}</span></span>
+                    <span>MT5: <span className="font-mono text-zinc-300">{c.account_login ?? "—"}</span></span>
+                    <span>Phase: <span className="text-zinc-300">{c.current_phase}</span></span>
+                    <span>Completed: <span className="text-zinc-300">{fmtDate(c.completed_at)}</span></span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )
+        )}
+
+        {activeTab === "Trading Accounts" && (
+          detail.tradingAccounts.length === 0 ? (
+            <p className="text-sm text-zinc-600">No trading accounts linked.</p>
+          ) : (
+            <div className="space-y-2">
+              {detail.tradingAccounts.map((a, i) => (
+                <div key={i} className="rounded-lg border border-white/10 p-3 text-xs">
+                  <div className="flex items-center justify-between">
+                    <p className="font-mono text-sm text-zinc-200">{a.account_login ?? "—"}</p>
+                    <span className={`rounded-full px-2 py-0.5 font-medium ${statusBadge(a.status)}`}>{a.status}</span>
+                  </div>
+                  <div className="mt-2 grid grid-cols-2 gap-1 text-zinc-500 sm:grid-cols-3">
+                    <span>Broker: <span className="text-zinc-300">{a.broker ?? "—"}</span></span>
+                    <span>Server: <span className="text-zinc-300">{a.server ?? "—"}</span></span>
+                    <span>PA: <span className="text-zinc-300">{a.pa_label ?? "—"}</span></span>
+                    <span>Assigned: <span className="text-zinc-300">{fmtDate(a.assigned_at)}</span></span>
+                    <span>Last Reset: <span className="text-zinc-300">{fmtDate(a.last_reset_at)}</span></span>
+                    <span>VPS: <span className="text-zinc-300">
+                      {a.vpsSlotLabel ? `${a.vpsSlotLabel} (${a.vpsHealthy ? "healthy" : "stale"})` : "Not assigned"}
+                    </span></span>
+                  </div>
+                  <p className="mt-2 text-[11px] text-zinc-700">MetaAPI Status: Not implemented — not part of our architecture</p>
+                </div>
+              ))}
+            </div>
+          )
+        )}
+
+        {activeTab === "Financial" && (
+          <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-3">
+            <p className="text-zinc-400">Lifetime Spend: <span className="text-zinc-200">₦{detail.financialSummary.lifetimeSpend.toLocaleString()}</span></p>
+            <p className="text-zinc-400">Total Purchases: <span className="text-zinc-200">{detail.financialSummary.totalPurchases}</span></p>
+            <p className="text-zinc-400">Active: <span className="text-zinc-200">{detail.financialSummary.activeChallenges}</span></p>
+            <p className="text-zinc-400">Passed: <span className="text-zinc-200">{detail.financialSummary.passedChallenges}</span></p>
+            <p className="text-zinc-400">Failed: <span className="text-zinc-200">{detail.financialSummary.failedChallenges}</span></p>
+            <p className="text-zinc-400">Funded: <span className="text-zinc-200">{detail.financialSummary.fundedAccounts}</span></p>
+            <p className="text-zinc-400">Total Payouts: <span className="text-zinc-200">₦{detail.financialSummary.totalPayouts.toLocaleString()}</span></p>
+            <p className="text-zinc-400">Pending Payouts: <span className="text-zinc-200">₦{detail.financialSummary.pendingPayouts.toLocaleString()}</span></p>
+            <p className="text-zinc-400">Last Purchase: <span className="text-zinc-200">{fmtDate(detail.financialSummary.lastPurchaseDate)}</span></p>
           </div>
+        )}
+
+        {activeTab === "Audit Log" && (
+          <p className="text-sm text-zinc-600">Audit logging isn't built yet — this tab will show every admin action taken on this account once it exists.</p>
         )}
       </div>
     </div>
@@ -209,6 +323,7 @@ export default function UsersTable({ initialUsers, initialTotalCount }: { initia
   const [page, setPage] = useState(1);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [awaitingProvisioningIds, setAwaitingProvisioningIds] = useState<Set<string>>(new Set());
 
   const fetchUsers = useCallback((searchVal: string, filterVal: string, pageVal: number) => {
     setLoading(true);
@@ -229,6 +344,12 @@ export default function UsersTable({ initialUsers, initialTotalCount }: { initia
     const debounce = setTimeout(() => fetchUsers(search, filter, page), search ? 350 : 0);
     return () => clearTimeout(debounce);
   }, [search, filter, page, fetchUsers]);
+
+  useEffect(() => {
+    if (filter === "pending_provisioning") {
+      setAwaitingProvisioningIds(new Set(users.map((u) => u.id)));
+    }
+  }, [filter, users]);
 
   function handleFilterChange(f: string) {
     setFilter(f);
@@ -253,13 +374,13 @@ export default function UsersTable({ initialUsers, initialTotalCount }: { initia
   return (
     <div>
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="relative w-full sm:w-72">
+        <div className="relative w-full sm:w-80">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" strokeWidth={1.75} />
           <input
             type="text"
             value={search}
             onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-            placeholder="Search name, email, username, MT5 login, challenge ID..."
+            placeholder="Search name, email, username, ID, MT5 login, challenge ID..."
             className="w-full rounded-lg border border-white/10 bg-white/[0.03] py-2 pl-9 pr-3 text-sm text-zinc-300 placeholder:text-zinc-600 focus:border-[#D4AF37]/40 focus:outline-none"
           />
         </div>
@@ -298,8 +419,7 @@ export default function UsersTable({ initialUsers, initialTotalCount }: { initia
                   <th className="px-4 py-3 font-medium">Country</th>
                   <th className="px-4 py-3 font-medium">Role</th>
                   <th className="px-4 py-3 font-medium">Status</th>
-                  <th className="px-4 py-3 font-medium">Challenge</th>
-                  <th className="px-4 py-3 font-medium">MT5 Login</th>
+                  <th className="px-4 py-3 font-medium">Current Challenge</th>
                   <th className="px-4 py-3 font-medium text-right">Purchases</th>
                   <th className="px-4 py-3 font-medium text-right">Lifetime Spend</th>
                   <th className="px-4 py-3 font-medium">Last Activity</th>
@@ -332,19 +452,23 @@ export default function UsersTable({ initialUsers, initialTotalCount }: { initia
                           {u.is_suspended ? "Suspended" : "Active"}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-xs text-zinc-400">{phaseLabel(u.activeChallengeStatus, u.activeChallengePhase)}</td>
-                      <td className="px-4 py-3 font-mono text-xs text-zinc-500">{u.activeMt5Login ?? "—"}</td>
+                      <td className="px-4 py-3 text-xs text-zinc-400">{u.currentChallengeLabel}</td>
                       <td className="px-4 py-3 text-right text-zinc-400">{u.totalPurchases}</td>
                       <td className="px-4 py-3 text-right font-mono text-zinc-300">₦{u.lifetimeSpend.toLocaleString()}</td>
                       <td className="px-4 py-3 text-xs text-zinc-500">{timeAgo(u.lastActivity)}</td>
                       <td className="px-2 py-3">
-                        <ActionsMenu user={u} onSuspendToggle={handleSuspendToggle} />
+                        <ActionsMenu
+                          user={u}
+                          isAwaitingProvisioning={awaitingProvisioningIds.has(u.id)}
+                          onSuspendToggle={handleSuspendToggle}
+                          onRetryProvisioning={() => fetchUsers(search, filter, page)}
+                        />
                       </td>
                     </tr>
                     {expandedId === u.id && (
                       <tr key={`${u.id}-detail`}>
-                        <td colSpan={12} className="p-0">
-                          <UserDetailPanel userId={u.id} />
+                        <td colSpan={11} className="p-0">
+                          <UserDetailPanel userId={u.id} onProvisioned={() => fetchUsers(search, filter, page)} />
                         </td>
                       </tr>
                     )}
