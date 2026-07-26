@@ -3,8 +3,9 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import {
   Search, ChevronDown, ChevronRight, MoreVertical, Server, Users2, Receipt,
-  UserPlus, ExternalLink, Trash2, CheckCircle2, Circle,
+  UserPlus, ExternalLink, Trash2, CheckCircle2, Circle, Plus,
 } from "lucide-react";
+import BulkAddInventoryModal from "./BulkAddInventoryModal";
 
 interface InventoryRow {
   id: string;
@@ -304,6 +305,7 @@ export default function InventoryTable({ initialAccounts, initialTotalCount }: {
   const [page, setPage] = useState(1);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [showBulkAdd, setShowBulkAdd] = useState(false);
 
   const fetchAccounts = useCallback((searchVal: string, filterVal: string, pageVal: number) => {
     setLoading(true);
@@ -340,13 +342,20 @@ export default function InventoryTable({ initialAccounts, initialTotalCount }: {
             className="w-full rounded-lg border border-white/10 bg-white/[0.03] py-2 pl-9 pr-3 text-sm text-zinc-300 placeholder:text-zinc-600 focus:border-[#D4AF37]/40 focus:outline-none"
           />
         </div>
-        <div className="flex flex-wrap gap-1.5">
+        <div className="flex flex-wrap items-center gap-1.5">
           {FILTERS.map((f) => (
             <button key={f.value} onClick={() => handleFilterChange(f.value)}
               className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${filter === f.value ? "bg-[#D4AF37] text-black" : "bg-white/5 text-zinc-400 hover:bg-white/10"}`}>
               {f.label}
             </button>
           ))}
+          <button
+            onClick={() => setShowBulkAdd(true)}
+            className="ml-2 flex items-center gap-1.5 rounded-lg bg-[#D4AF37] px-3 py-1.5 text-xs font-semibold text-black hover:bg-[#F5D573]"
+          >
+            <Plus className="h-3.5 w-3.5" strokeWidth={2} />
+            Add Accounts
+          </button>
         </div>
       </div>
 
@@ -413,6 +422,13 @@ export default function InventoryTable({ initialAccounts, initialTotalCount }: {
             <button onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page === totalPages} className="rounded-lg border border-white/10 px-3 py-1.5 text-zinc-400 disabled:opacity-30">Next</button>
           </div>
         </div>
+      )}
+
+      {showBulkAdd && (
+        <BulkAddInventoryModal
+          onClose={() => setShowBulkAdd(false)}
+          onAdded={() => fetchAccounts(search, filter, page)}
+        />
       )}
     </div>
   );
