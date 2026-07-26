@@ -1,57 +1,71 @@
-import { getTradersByStatus } from "@/lib/database/admin-queries";
+import { getFailedTraderStats, getFailedTradersPage, getDeletionMonitor, getFailureAnalytics } from "@/lib/database/admin-failed-traders";
 import AdminHeader from "@/components/admin/AdminHeader";
+import FailedTradersTable from "@/components/admin/FailedTradersTable";
+import FailureCharts from "@/components/admin/FailureCharts";
+import { XCircle, Calendar, Clock, Trash2, ShieldAlert } from "lucide-react";
+
+function StatCard({ label, value, icon: Icon, tone }: { label: string; value: string; icon: any; tone?: "success" | "danger" | "gold" }) {
+  const toneClass = tone === "success" ? "text-emerald-400" : tone === "danger" ? "text-red-400" : tone === "gold" ? "text-[#D4AF37]" : "text-white";
+  return (
+    <div className="rounded-xl border border-white/10 bg-white/[0.02] p-5">
+      <div className="flex items-center justify-between">
+        <p className="text-xs uppercase tracking-wide text-zinc-500">{label}</p>
+        <Icon className="h-4 w-4 text-zinc-600" strokeWidth={1.75} />
+      </div>
+      <p className={`mt-2 text-2xl font-bold ${toneClass}`}>{value}</p>
+    </div>
+  );
+}
 
 export default async function FailedTradersPage() {
-  const traders = await getTradersByStatus("failed");
+  const [stats, initial, deletionMonitor, analytics] = await Promise.all([
+    getFailedTraderStats(),
+    getFailedTradersPage({ page: 1, pageSize: 20 }),
+    getDeletionMonitor(),
+    getFailureAnalytics(),
+  ]);
 
   return (
     <div>
       <AdminHeader title="Failed Traders" />
-      <div className="p-8">
-        <p className="mb-4 text-sm text-zinc-500">{traders.length} challenge{traders.length === 1 ? "" : "s"} that failed — accounts retired, never reused</p>
+      <div className="space-y-6 p-4 sm:p-8">
+        <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-6">
+          <StatCard label="Total Failed" value={String(stats.totalFailed)} icon={XCircle} tone="danger" />
+          <StatCard label="Failed Today" value={String(stats.failedToday)} icon={Calendar} tone="danger" />
+          <StatCard label="Failed This Week" value={String(stats.failedThisWeek)} icon={Calendar} />
+          <StatCard label="Awaiting Deletion" value={String(stats.awaitingDeletion)} icon={Trash2} />
+          <StatCard label="Avg. Days Until Deletion" value={String(stats.avgDaysUntilDeletion)} icon={Clock} />
+          <StatCard label="Rule Violations Today" value={String(stats.ruleViolationsToday)} icon={ShieldAlert} tone="danger" />
+        </div>
 
-        {traders.length === 0 ? (
-          <div className="rounded-xl border border-white/10 bg-white/[0.02] p-12 text-center">
-            <p className="text-zinc-500">No failed challenges yet.</p>
+        <FailedTradersTable initialTraders={initial.traders} initialTotalCount={initial.totalCount} />
+
+        <div className="grid gap-6 lg:grid-cols-2">
+          <div className="rounded-xl border border-white/10 bg-white/[0.02] p-6">
+            <h2 className="text-lg font-semibold text-white">Deletion Monitor</h2>
+            <div className="mt-4 grid grid-cols-2 gap-4 text-sm">
+              <div>
+                <p className="text-xs text-zinc-500">Deleting Within 3 Days</p>
+                <p className="mt-1 text-xl font-bold text-red-400">{deletionMonitor.within3Days}</p>
+              </div>
+              <div>
+                <p className="text-xs text-zinc-500">Deleting Within 7 Days</p>
+                <p className="mt-1 text-xl font-bold text-amber-400">{deletionMonitor.within7Days}</p>
+              </div>
+              <div>
+                <p className="text-xs text-zinc-500">Oldest Retired</p>
+                <p className="mt-1 text-zinc-200">{deletionMonitor.oldestRetiredLogin ? `${deletionMonitor.oldestRetiredLogin} (${deletionMonitor.oldestRetiredDays}d)` : "—"}</p>
+              </div>
+              <div>
+                <p className="text-xs text-zinc-500">Likely Already Deleted</p>
+                <p className="mt-1 text-zinc-200">{deletionMonitor.alreadyLikelyDeleted}</p>
+              </div>
+            </div>
+            <p className="mt-4 text-[11px] text-zinc-600">Estimates based on our own records, not a live sync with Exness — logging in doesn't reset the real clock, only a genuine trade does.</p>
           </div>
-        ) : (
-          <div className="overflow-x-auto rounded-xl border border-white/10">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-white/10 bg-white/[0.03] text-left text-xs uppercase tracking-wide text-zinc-500">
-                  <th className="px-4 py-3 font-medium">Trader</th>
-                  <th className="px-4 py-3 font-medium">Account</th>
-                  <th className="px-4 py-3 font-medium">Phase Reached</th>
-                  <th className="px-4 py-3 font-medium text-right">Account Size</th>
-                  <th className="px-4 py-3 font-medium text-right">Final Balance</th>
-                  <th className="px-4 py-3 font-medium">Failed On</th>
-                </tr>
-              </thead>
-              <tbody>
-                {traders.map((t) => (
-                  <tr key={t.id} className="border-b border-white/5 hover:bg-white/[0.02]">
-                    <td className="px-4 py-3 text-zinc-300">{t.user_email}</td>
-                    <td className="px-4 py-3 font-mono text-zinc-400">{t.account_login ?? "—"}</td>
-                    <td className="px-4 py-3">
-                      <span className="rounded-full bg-red-400/10 px-2.5 py-1 text-xs font-medium text-red-400">
-                        Phase {t.current_phase}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-right font-mono text-zinc-400">
-                      {t.account_size !== null ? `₦${t.account_size.toLocaleString()}` : "—"}
-                    </td>
-                    <td className="px-4 py-3 text-right font-mono text-zinc-300">
-                      {t.last_known_balance !== null ? `₦${t.last_known_balance.toLocaleString()}` : "—"}
-                    </td>
-                    <td className="px-4 py-3 text-xs text-zinc-500">
-                      {new Date(t.created_at).toLocaleDateString()}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+
+          <FailureCharts data={analytics} />
+        </div>
       </div>
     </div>
   );
