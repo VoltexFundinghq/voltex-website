@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import {
   Search, ChevronDown, ChevronRight, MoreVertical, Ban, CheckCircle2, Mail, Key,
-  FileText, Eye, Wallet, RotateCw,
+  FileText, Eye, Wallet, RotateCw, Circle,
 } from "lucide-react";
 
 interface UserListRow {
@@ -21,24 +21,26 @@ interface UserListRow {
   lastActivity: string | null;
 }
 
+interface TimelineStep {
+  label: string;
+  timestamp: string | null;
+  reached: boolean;
+}
+
 interface UserDetail {
   profile: {
     id: string; full_name: string | null; email: string; username: string | null;
     country: string | null; phone: string | null; created_at: string; last_sign_in_at: string | null;
   };
-  challengeHistory: {
-    id: string; challenge_size: string; account_size: number | null; created_at: string;
-    completed_at: string | null; current_phase: number; status: string; account_login: string | null;
-  }[];
+  challengeTimeline: TimelineStep[];
   financialSummary: {
-    lifetimeSpend: number; totalPurchases: number; activeChallenges: number; passedChallenges: number;
-    failedChallenges: number; fundedAccounts: number; totalPayouts: number; pendingPayouts: number;
-    lastPurchaseDate: string | null;
+    totalChallengePurchases: number; totalRevenue: number; refunds: number;
+    payoutsPaid: number; outstandingPayout: number; netRevenue: number;
   };
-  tradingAccounts: {
-    account_login: string | null; broker: string | null; server: string | null; pa_label: string | null;
-    status: string; assigned_at: string | null; last_reset_at: string | null;
-    vpsSlotLabel: string | null; vpsHealthy: boolean | null;
+  assignedAccounts: {
+    account_login: string | null; server: string | null; currentStage: string;
+    challenge_size: string | null; assigned_at: string | null; status: string;
+    password_last_reset_at: string | null; last_sync: string | null;
   }[];
   isAwaitingProvisioning: boolean;
 }
@@ -53,7 +55,7 @@ const FILTERS = [
   { value: "pending_provisioning", label: "Pending Provisioning" },
 ];
 
-const TABS = ["Profile", "Challenges", "Trading Accounts", "Financial", "Audit Log"] as const;
+const TABS = ["Profile", "Challenge Timeline", "Assigned Accounts", "Financial", "Audit Log"] as const;
 type Tab = (typeof TABS)[number];
 
 const PAGE_SIZE = 20;
@@ -80,14 +82,8 @@ function statusBadge(status: string): string {
   if (["active", "passed", "funded", "available"].includes(s)) return "bg-emerald-400/10 text-emerald-400";
   if (["assigned"].includes(s)) return "bg-blue-400/10 text-blue-400";
   if (["awaiting_allocation", "pending", "resetting"].includes(s)) return "bg-amber-400/10 text-amber-400";
-  if (["failed", "suspended"].includes(s)) return "bg-red-400/10 text-red-400";
+  if (["failed", "suspended"].includes(s) || s.includes("retired")) return "bg-red-400/10 text-red-400";
   return "bg-white/5 text-zinc-400";
-}
-
-function resultLabel(status: string, phase: number): string {
-  if (status === "active" && phase === 3) return "Funded";
-  if (status === "active") return `In Progress — Phase ${phase}`;
-  return status;
 }
 
 function ActionsMenu({
@@ -114,7 +110,7 @@ function ActionsMenu({
 
   const items = [
     { label: "View Purchases", icon: FileText, action: () => setOpen(false), live: true },
-    { label: "View Trading Accounts", icon: Wallet, action: () => setOpen(false), live: true },
+    { label: "View Assigned Accounts", icon: Wallet, action: () => setOpen(false), live: true },
     ...(isAwaitingProvisioning ? [{ label: "Provision Account", icon: RotateCw, action: () => { onRetryProvisioning(user.id); setOpen(false); }, live: true }] : []),
     user.is_suspended
       ? { label: "Activate User", icon: CheckCircle2, action: () => { onSuspendToggle(user.id, false); setOpen(false); }, live: true }
@@ -195,7 +191,7 @@ function UserDetailPanel({ userId, onProvisioned }: { userId: string; onProvisio
 
   return (
     <div className="bg-black/30">
-      <div className="flex gap-1 border-b border-white/10 px-6 pt-4">
+      <div className="flex flex-wrap gap-1 border-b border-white/10 px-6 pt-4">
         {TABS.map((tab) => (
           <button
             key={tab}
@@ -242,22 +238,28 @@ function UserDetailPanel({ userId, onProvisioned }: { userId: string; onProvisio
           </div>
         )}
 
-        {activeTab === "Challenges" && (
-          detail.challengeHistory.length === 0 ? (
-            <p className="text-sm text-zinc-600">No challenges yet.</p>
+        {activeTab === "Challenge Timeline" && (
+          detail.challengeTimeline.length === 0 ? (
+            <p className="text-sm text-zinc-600">No activity yet.</p>
           ) : (
-            <div className="space-y-2">
-              {detail.challengeHistory.map((c) => (
-                <div key={c.id} className="rounded-lg border border-white/10 p-3 text-xs">
-                  <div className="flex items-center justify-between">
-                    <p className="text-sm text-zinc-200">{c.account_size ? `₦${c.account_size.toLocaleString()}` : c.challenge_size}</p>
-                    <span className={`rounded-full px-2 py-0.5 font-medium ${statusBadge(c.status)}`}>{resultLabel(c.status, c.current_phase)}</span>
+            <div className="space-y-0">
+              {detail.challengeTimeline.map((step, i) => (
+                <div key={i} className="flex gap-3">
+                  <div className="flex flex-col items-center">
+                    <div className={`flex h-5 w-5 items-center justify-center rounded-full ${step.reached ? "bg-[#D4AF37]" : "bg-white/10"}`}>
+                      {step.reached ? (
+                        <CheckCircle2 className="h-3.5 w-3.5 text-black" strokeWidth={2.5} />
+                      ) : (
+                        <Circle className="h-2.5 w-2.5 text-zinc-600" strokeWidth={2} />
+                      )}
+                    </div>
+                    {i < detail.challengeTimeline.length - 1 && (
+                      <div className={`w-px flex-1 ${step.reached ? "bg-[#D4AF37]/40" : "bg-white/10"}`} style={{ minHeight: "24px" }} />
+                    )}
                   </div>
-                  <div className="mt-2 grid grid-cols-2 gap-1 text-zinc-500 sm:grid-cols-4">
-                    <span>Purchased: <span className="text-zinc-300">{fmtDate(c.created_at)}</span></span>
-                    <span>MT5: <span className="font-mono text-zinc-300">{c.account_login ?? "—"}</span></span>
-                    <span>Phase: <span className="text-zinc-300">{c.current_phase}</span></span>
-                    <span>Completed: <span className="text-zinc-300">{fmtDate(c.completed_at)}</span></span>
+                  <div className="pb-6">
+                    <p className={`text-sm ${step.reached ? "text-zinc-200" : "text-zinc-600"}`}>{step.label}</p>
+                    <p className="text-xs text-zinc-600">{step.timestamp ? fmtDateTime(step.timestamp) : "Not yet reached"}</p>
                   </div>
                 </div>
               ))}
@@ -265,28 +267,25 @@ function UserDetailPanel({ userId, onProvisioned }: { userId: string; onProvisio
           )
         )}
 
-        {activeTab === "Trading Accounts" && (
-          detail.tradingAccounts.length === 0 ? (
-            <p className="text-sm text-zinc-600">No trading accounts linked.</p>
+        {activeTab === "Assigned Accounts" && (
+          detail.assignedAccounts.length === 0 ? (
+            <p className="text-sm text-zinc-600">No accounts assigned yet.</p>
           ) : (
             <div className="space-y-2">
-              {detail.tradingAccounts.map((a, i) => (
+              {detail.assignedAccounts.map((a, i) => (
                 <div key={i} className="rounded-lg border border-white/10 p-3 text-xs">
                   <div className="flex items-center justify-between">
                     <p className="font-mono text-sm text-zinc-200">{a.account_login ?? "—"}</p>
-                    <span className={`rounded-full px-2 py-0.5 font-medium ${statusBadge(a.status)}`}>{a.status}</span>
+                    <span className={`rounded-full px-2 py-0.5 font-medium ${statusBadge(a.currentStage)}`}>{a.currentStage}</span>
                   </div>
                   <div className="mt-2 grid grid-cols-2 gap-1 text-zinc-500 sm:grid-cols-3">
-                    <span>Broker: <span className="text-zinc-300">{a.broker ?? "—"}</span></span>
                     <span>Server: <span className="text-zinc-300">{a.server ?? "—"}</span></span>
-                    <span>PA: <span className="text-zinc-300">{a.pa_label ?? "—"}</span></span>
+                    <span>Challenge: <span className="text-zinc-300">{a.challenge_size ?? "—"}</span></span>
                     <span>Assigned: <span className="text-zinc-300">{fmtDate(a.assigned_at)}</span></span>
-                    <span>Last Reset: <span className="text-zinc-300">{fmtDate(a.last_reset_at)}</span></span>
-                    <span>VPS: <span className="text-zinc-300">
-                      {a.vpsSlotLabel ? `${a.vpsSlotLabel} (${a.vpsHealthy ? "healthy" : "stale"})` : "Not assigned"}
-                    </span></span>
+                    <span>Status: <span className="text-zinc-300">{a.status}</span></span>
+                    <span>Password Reset: <span className="text-zinc-300">{fmtDate(a.password_last_reset_at)}</span></span>
+                    <span>Last Sync: <span className="text-zinc-300">{timeAgo(a.last_sync)}</span></span>
                   </div>
-                  <p className="mt-2 text-[11px] text-zinc-700">MetaAPI Status: Not implemented — not part of our architecture</p>
                 </div>
               ))}
             </div>
@@ -295,15 +294,12 @@ function UserDetailPanel({ userId, onProvisioned }: { userId: string; onProvisio
 
         {activeTab === "Financial" && (
           <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-3">
-            <p className="text-zinc-400">Lifetime Spend: <span className="text-zinc-200">₦{detail.financialSummary.lifetimeSpend.toLocaleString()}</span></p>
-            <p className="text-zinc-400">Total Purchases: <span className="text-zinc-200">{detail.financialSummary.totalPurchases}</span></p>
-            <p className="text-zinc-400">Active: <span className="text-zinc-200">{detail.financialSummary.activeChallenges}</span></p>
-            <p className="text-zinc-400">Passed: <span className="text-zinc-200">{detail.financialSummary.passedChallenges}</span></p>
-            <p className="text-zinc-400">Failed: <span className="text-zinc-200">{detail.financialSummary.failedChallenges}</span></p>
-            <p className="text-zinc-400">Funded: <span className="text-zinc-200">{detail.financialSummary.fundedAccounts}</span></p>
-            <p className="text-zinc-400">Total Payouts: <span className="text-zinc-200">₦{detail.financialSummary.totalPayouts.toLocaleString()}</span></p>
-            <p className="text-zinc-400">Pending Payouts: <span className="text-zinc-200">₦{detail.financialSummary.pendingPayouts.toLocaleString()}</span></p>
-            <p className="text-zinc-400">Last Purchase: <span className="text-zinc-200">{fmtDate(detail.financialSummary.lastPurchaseDate)}</span></p>
+            <p className="text-zinc-400">Total Challenge Purchases: <span className="text-zinc-200">{detail.financialSummary.totalChallengePurchases}</span></p>
+            <p className="text-zinc-400">Total Revenue: <span className="text-zinc-200">₦{detail.financialSummary.totalRevenue.toLocaleString()}</span></p>
+            <p className="text-zinc-400">Refunds: <span className="text-zinc-200">₦{detail.financialSummary.refunds.toLocaleString()}</span></p>
+            <p className="text-zinc-400">Payouts Paid: <span className="text-zinc-200">₦{detail.financialSummary.payoutsPaid.toLocaleString()}</span></p>
+            <p className="text-zinc-400">Outstanding Payout: <span className="text-zinc-200">₦{detail.financialSummary.outstandingPayout.toLocaleString()}</span></p>
+            <p className="text-[#D4AF37]">Net Revenue: <span className="font-semibold">₦{detail.financialSummary.netRevenue.toLocaleString()}</span></p>
           </div>
         )}
 
