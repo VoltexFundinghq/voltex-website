@@ -73,9 +73,21 @@ async function handlePassed(
     return;
   }
 
-  await (serviceClient.from("user_challenges") as any)
-    .update({ status: "passed" })
-    .eq("id", challenge.id);
+  // Phase 2 pass — retire the OLD evaluation account via the same
+  // proven RPC used for failures. This correctly flips its status to
+  // 'resetting', clears assigned_to, and stamps last_known_activity_at
+  // — the exact field the 21-day Exness deletion countdown depends
+  // on. Previously this was a raw status update that skipped all of
+  // that, silently leaving passed-to-funded accounts stuck at
+  // 'assigned' forever with no real countdown ever starting.
+  const { error: completeError } = await (serviceClient.rpc as any)("complete_user_challenge", {
+    p_user_challenge_id: challenge.id,
+    p_outcome: "passed",
+  });
+
+  if (completeError) {
+    console.error("Failed to complete/retire old evaluation account on Phase 2 pass:", completeError);
+  }
 
   const { data: allocation, error: allocError } = await (serviceClient.rpc as any)("allocate_trading_account", {
     p_user_challenge_id: challenge.id,
@@ -247,8 +259,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ status: "ignored", reason: "no active challenge for this account" });
   }
 
-  // --- Record the last known live balance/equity/open-trade-count on
-  // EVERY successful check, regardless of what else happens below. ---
   await (serviceClient.from("user_challenges") as any)
     .update({
       last_known_balance: Number(balance),
