@@ -29,6 +29,12 @@ export interface UserListResult {
   totalCount: number;
 }
 
+export interface TimelineStep {
+  label: string;
+  timestamp: string | null;
+  reached: boolean;
+}
+
 export interface UserDetail {
   profile: {
     id: string;
@@ -40,37 +46,24 @@ export interface UserDetail {
     created_at: string;
     last_sign_in_at: string | null;
   };
-  challengeHistory: {
-    id: string;
-    challenge_size: string;
-    account_size: number | null;
-    created_at: string;
-    completed_at: string | null;
-    current_phase: number;
-    status: string;
-    account_login: string | null;
-  }[];
+  challengeTimeline: TimelineStep[];
   financialSummary: {
-    lifetimeSpend: number;
-    totalPurchases: number;
-    activeChallenges: number;
-    passedChallenges: number;
-    failedChallenges: number;
-    fundedAccounts: number;
-    totalPayouts: number;
-    pendingPayouts: number;
-    lastPurchaseDate: string | null;
+    totalChallengePurchases: number;
+    totalRevenue: number;
+    refunds: number;
+    payoutsPaid: number;
+    outstandingPayout: number;
+    netRevenue: number;
   };
-  tradingAccounts: {
+  assignedAccounts: {
     account_login: string | null;
-    broker: string | null;
     server: string | null;
-    pa_label: string | null;
-    status: string;
+    currentStage: string;
+    challenge_size: string | null;
     assigned_at: string | null;
-    last_reset_at: string | null;
-    vpsSlotLabel: string | null;
-    vpsHealthy: boolean | null;
+    status: string;
+    password_last_reset_at: string | null;
+    last_sync: string | null;
   }[];
   isAwaitingProvisioning: boolean;
 }
@@ -80,6 +73,14 @@ function challengeLabel(status: string | null, phase: number | null, size: numbe
   const sizeLabel = size ? `₦${size.toLocaleString()}` : "";
   if (phase === 3) return `${sizeLabel} Funded`.trim();
   return `${sizeLabel} Phase ${phase}`.trim();
+}
+
+function currentStageLabel(status: string, phase: number): string {
+  if (status === "active" && phase === 3) return "Funded";
+  if (status === "active") return `Phase ${phase}`;
+  if (status === "passed") return "Passed";
+  if (status === "failed") return "Failed (Retired)";
+  return status;
 }
 
 export async function getUserSummaryStats(): Promise<UserSummaryStats> {
@@ -266,52 +267,69 @@ export async function getUserDetail(userId: string): Promise<UserDetail | null> 
 
   const challengesQuery = await serviceClient
     .from("user_challenges")
-    .select("id, challenge_id, trading_account_id, status, current_phase, account_login, created_at, completed_at")
+    .select("id, challenge_id, trading_account_id, status, current_phase, account_login, created_at, completed_at, last_known_check_at")
     .eq("user_id", userId)
-    .order("created_at", { ascending: false });
+    .order("created_at", { ascending: true });
 
   const challenges = (challengesQuery.data as any[]) ?? [];
-
-  const payoutsQuery = await serviceClient
-    .from("payout_requests")
-    .select("amount, status")
-    .eq("user_id", userId);
-
-  const payoutRows = (payoutsQuery.data as { amount: number; status: string }[]) ?? [];
-  const totalPayouts = payoutRows.filter((p) => p.status === "approved" || p.status === "completed").reduce((s, p) => s + Number(p.amount), 0);
-  const pendingPayouts = payoutRows.filter((p) => p.status === "pending").reduce((s, p) => s + Number(p.amount), 0);
 
   const purchasesQuery = await serviceClient
     .from("challenge_purchases")
     .select("price_paid, payment_status, created_at")
     .eq("user_id", userId)
-    .order("created_at", { ascending: false });
+    .order("created_at", { ascending: true });
 
   const purchaseRows = (purchasesQuery.data as { price_paid: number; payment_status: string; created_at: string }[]) ?? [];
   const completed = purchaseRows.filter((p) => p.payment_status === "completed");
-  const lifetimeSpend = completed.reduce((s, p) => s + Number(p.price_paid), 0);
+  const refunded = purchaseRows.filter((p) => p.payment_status === "refunded");
+  const totalRevenue = completed.reduce((s, p) => s + Number(p.price_paid), 0);
+  const refundsTotal = refunded.reduce((s, p) => s + Number(p.price_paid), 0);
+
+  const payoutsQuery = await serviceClient
+    .from("payout_requests")
+    .select("amount, status, requested_at, processed_at")
+    .eq("user_id", userId)
+    .order("requested_at", { ascending: true });
+
+  const payoutRows = (payoutsQuery.data as { amount: number; status: string; requested_at: string; processed_at: string | null }[]) ?? [];
+  const payoutsPaid = payoutRows.filter((p) => p.status === "approved" || p.status === "completed").reduce((s, p) => s + Number(p.amount), 0);
+  const outstandingPayout = payoutRows.filter((p) => p.status === "pending").reduce((s, p) => s + Number(p.amount), 0);
 
   const accountIds = challenges.map((c) => c.trading_account_id).filter((id): id is string => !!id);
   const accountsQuery = accountIds.length > 0
-    ? await serviceClient.from("trading_accounts").select("id, login, broker, server, pa_label, status, assigned_at, last_reset_at").in("id", accountIds)
+    ? await serviceClient.from("trading_accounts").select("id, login, server, account_size, status, assigned_at, password_last_reset_at").in("id", accountIds)
     : { data: [] as any[] };
+  const accountById = new Map((accountsQuery.data as any[] ?? []).map((a) => [a.id, a]));
 
-  const accountRows = (accountsQuery.data as any[]) ?? [];
+  const firstChallenge = challenges[0];
+  const firstPurchase = purchaseRows[0];
+  const firstAccount = firstChallenge?.trading_account_id ? accountById.get(firstChallenge.trading_account_id) : null;
 
-  const slotsQuery = await serviceClient.from("vps_slots").select("slot_label, current_user_challenge_id");
-  const activeChallengeIds = new Set(challenges.filter((c) => c.status === "active").map((c) => c.id));
-  const slotByChallenge = new Map(
-    (slotsQuery.data as { slot_label: string; current_user_challenge_id: string | null }[] ?? [])
-      .filter((s) => s.current_user_challenge_id && activeChallengeIds.has(s.current_user_challenge_id))
-      .map((s) => [s.current_user_challenge_id as string, s.slot_label])
-  );
+  const phase1Pass = challenges.find((c) => c.status === "passed" && c.current_phase === 1) ?? challenges.find((c) => c.status === "active" && c.current_phase >= 2);
+  const phase2Pass = challenges.find((c) => c.status === "passed" && c.current_phase === 2) ?? challenges.find((c) => c.status === "active" && c.current_phase === 3);
+  const funded = challenges.find((c) => c.status === "active" && c.current_phase === 3);
+  const anyFailed = challenges.find((c) => c.status === "failed");
 
-  const activeChallengeByAccount = new Map(challenges.filter((c) => c.status === "active" && c.trading_account_id).map((c) => [c.trading_account_id, c]));
+  const timeline: TimelineStep[] = [
+    { label: "Challenge Purchased", timestamp: firstPurchase?.created_at ?? null, reached: !!firstPurchase },
+    { label: "Payment Confirmed", timestamp: completed[0]?.created_at ?? null, reached: completed.length > 0 },
+    { label: "Inventory Assigned", timestamp: firstAccount?.assigned_at ?? firstChallenge?.created_at ?? null, reached: !!firstChallenge?.trading_account_id },
+    { label: "Started Trading", timestamp: firstChallenge?.created_at ?? null, reached: !!firstChallenge },
+    { label: "Passed Phase 1", timestamp: phase1Pass?.completed_at ?? null, reached: !!phase1Pass },
+    { label: "Passed Phase 2", timestamp: phase2Pass?.completed_at ?? null, reached: !!phase2Pass },
+    { label: "Funded", timestamp: funded?.created_at ?? null, reached: !!funded },
+  ];
 
-  const accountSizesForChallengeHistory = accountIds.length > 0
-    ? await serviceClient.from("trading_accounts").select("id, account_size").in("id", accountIds)
-    : { data: [] as any[] };
-  const sizeById = new Map((accountSizesForChallengeHistory.data as { id: string; account_size: number }[] ?? []).map((a) => [a.id, a.account_size]));
+  payoutRows.forEach((p, i) => {
+    timeline.push({ label: `Payout ${i + 1}`, timestamp: p.requested_at, reached: true });
+    if (p.processed_at) {
+      timeline.push({ label: `Balance Reset (after Payout ${i + 1})`, timestamp: p.processed_at, reached: true });
+    }
+  });
+
+  if (anyFailed) {
+    timeline.push({ label: "Retired (Failed)", timestamp: anyFailed.completed_at, reached: true });
+  }
 
   return {
     profile: {
@@ -324,45 +342,30 @@ export async function getUserDetail(userId: string): Promise<UserDetail | null> 
       created_at: profile.created_at,
       last_sign_in_at: lastSignInAt,
     },
-    challengeHistory: challenges.map((c) => ({
-      id: c.id,
-      challenge_size: c.challenge_id,
-      account_size: c.trading_account_id ? sizeById.get(c.trading_account_id) ?? null : null,
-      created_at: c.created_at,
-      completed_at: c.completed_at,
-      current_phase: c.current_phase,
-      status: c.status,
-      account_login: c.account_login,
-    })),
+    challengeTimeline: timeline,
     financialSummary: {
-      lifetimeSpend,
-      totalPurchases: completed.length,
-      activeChallenges: challenges.filter((c) => c.status === "active").length,
-      passedChallenges: challenges.filter((c) => c.status === "passed").length,
-      failedChallenges: challenges.filter((c) => c.status === "failed").length,
-      fundedAccounts: challenges.filter((c) => c.status === "active" && c.current_phase === 3).length,
-      totalPayouts,
-      pendingPayouts,
-      lastPurchaseDate: purchaseRows[0]?.created_at ?? null,
+      totalChallengePurchases: purchaseRows.length,
+      totalRevenue,
+      refunds: refundsTotal,
+      payoutsPaid,
+      outstandingPayout,
+      netRevenue: totalRevenue - refundsTotal - payoutsPaid,
     },
-    tradingAccounts: accountRows.map((a) => {
-      const relatedChallenge = activeChallengeByAccount.get(a.id);
-      const slotLabel = relatedChallenge ? slotByChallenge.get(relatedChallenge.id) ?? null : null;
-      const vpsHealthy = relatedChallenge?.last_known_check_at
-        ? (Date.now() - new Date(relatedChallenge.last_known_check_at).getTime()) < 60 * 1000
-        : null;
-      return {
-        account_login: a.login,
-        broker: a.broker,
-        server: a.server,
-        pa_label: a.pa_label,
-        status: a.status,
-        assigned_at: a.assigned_at,
-        last_reset_at: a.last_reset_at,
-        vpsSlotLabel: slotLabel,
-        vpsHealthy: slotLabel ? vpsHealthy : null,
-      };
-    }),
+    assignedAccounts: challenges
+      .filter((c) => c.trading_account_id)
+      .map((c) => {
+        const account = accountById.get(c.trading_account_id);
+        return {
+          account_login: c.account_login,
+          server: account?.server ?? null,
+          currentStage: currentStageLabel(c.status, c.current_phase),
+          challenge_size: account?.account_size ? `₦${Number(account.account_size).toLocaleString()}` : null,
+          assigned_at: account?.assigned_at ?? null,
+          status: account?.status ?? c.status,
+          password_last_reset_at: account?.password_last_reset_at ?? null,
+          last_sync: c.last_known_check_at ?? null,
+        };
+      }),
     isAwaitingProvisioning: challenges.some((c) => c.status === "awaiting_allocation"),
   };
 }
