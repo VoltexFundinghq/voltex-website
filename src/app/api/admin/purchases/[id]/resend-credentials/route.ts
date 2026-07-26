@@ -10,7 +10,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
   const { id } = await params;
   const detail = await getPurchaseDetail(id);
-  if (!detail || !detail.assignedAccount?.account_login) {
+  if (!detail || !detail.provision.mt5Login) {
     return NextResponse.json({ error: "No assigned account to send credentials for" }, { status: 404 });
   }
 
@@ -18,7 +18,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const accountQuery = await serviceClient
     .from("trading_accounts")
     .select("login, password, server, broker")
-    .eq("login", detail.assignedAccount.account_login)
+    .eq("login", detail.provision.mt5Login)
     .single();
 
   const account = accountQuery.data as any;

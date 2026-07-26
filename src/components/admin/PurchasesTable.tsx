@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import {
   Search, ChevronDown, ChevronRight, MoreVertical, User, FileText, Copy,
-  RotateCw, Mail, CheckCircle2, Circle,
+  RotateCw, ShieldCheck, CheckCircle2, Circle, XCircle,
 } from "lucide-react";
 
 interface PurchaseRow {
@@ -23,6 +23,7 @@ interface TimelineStep {
   label: string;
   timestamp: string | null;
   reached: boolean;
+  failed?: boolean;
 }
 
 interface PurchaseDetail {
@@ -30,8 +31,9 @@ interface PurchaseDetail {
   customer: { name: string | null; email: string; username: string | null; country: string | null };
   purchase: { challenge_size: string; price_paid: number; created_at: string };
   payment: { gateway: string; reference: string | null; status: string };
-  provisionStatus: string;
-  assignedAccount: { account_login: string | null; server: string | null; currentStage: string } | null;
+  provision: { status: string; mt5Login: string | null; server: string | null; vpsSlot: string | null; credentialsSent: boolean };
+  orderAgeMinutes: number;
+  cancelled: boolean;
   timeline: TimelineStep[];
   matchedChallengeId: string | null;
   userId: string;
@@ -54,6 +56,11 @@ function fmtDateTime(dateStr: string | null): string {
   if (!dateStr) return "—";
   return new Date(dateStr).toLocaleString();
 }
+function fmtAge(minutes: number): string {
+  if (minutes < 60) return `${minutes} minute${minutes === 1 ? "" : "s"}`;
+  if (minutes < 1440) return `${Math.floor(minutes / 60)} hour${Math.floor(minutes / 60) === 1 ? "" : "s"}`;
+  return `${Math.floor(minutes / 1440)} day${Math.floor(minutes / 1440) === 1 ? "" : "s"}`;
+}
 
 function paymentStatusBadge(status: string): string {
   if (status === "completed") return "bg-emerald-400/10 text-emerald-400";
@@ -61,10 +68,10 @@ function paymentStatusBadge(status: string): string {
   if (status === "refunded") return "bg-white/5 text-zinc-400";
   return "bg-amber-400/10 text-amber-400";
 }
-
 function provisionStatusBadge(status: string): string {
   if (status === "completed") return "bg-emerald-400/10 text-emerald-400";
   if (status === "error") return "bg-red-400/10 text-red-400";
+  if (status === "cancelled") return "bg-white/5 text-zinc-500";
   if (status === "provisioning") return "bg-blue-400/10 text-blue-400";
   if (status === "queued") return "bg-amber-400/10 text-amber-400";
   return "bg-white/5 text-zinc-400";
@@ -92,6 +99,17 @@ function ActionsMenu({ purchase }: { purchase: PurchaseRow }) {
     setOpen(false);
   }
 
+  async function retryVerification() {
+    setOpen(false);
+    try {
+      const res = await fetch(`/api/admin/purchases/${purchase.id}/retry-verification`, { method: "POST" });
+      const data = await res.json();
+      alert(data.message ?? (res.ok ? "Verified." : "Failed to verify."));
+    } catch {
+      alert("Failed to verify.");
+    }
+  }
+
   async function retryProvision() {
     setOpen(false);
     try {
@@ -103,24 +121,13 @@ function ActionsMenu({ purchase }: { purchase: PurchaseRow }) {
     }
   }
 
-  async function resendCredentials() {
-    setOpen(false);
-    try {
-      const res = await fetch(`/api/admin/purchases/${purchase.id}/resend-credentials`, { method: "POST" });
-      const data = await res.json();
-      alert(res.ok ? "Credentials email sent." : data.error ?? "Failed to send.");
-    } catch {
-      alert("Failed to send.");
-    }
-  }
-
   const items = [
     { label: "View User", icon: User, action: () => setOpen(false), live: true },
     { label: "View Challenge", icon: FileText, action: () => setOpen(false), live: true },
     { label: "Copy Reference", icon: Copy, action: copyReference, live: !!purchase.payment_reference },
-    ...(purchase.provisionStatus === "error" || purchase.provisionStatus === "queued" ? [{ label: "Retry Provision", icon: RotateCw, action: retryProvision, live: true }] : []),
-    ...(purchase.provisionStatus === "completed" ? [{ label: "Resend Credentials Email", icon: Mail, action: resendCredentials, live: true }] : []),
-    { label: "Refund", icon: RotateCw, action: () => setOpen(false), live: false },
+    ...(purchase.payment_status === "pending" ? [{ label: "Retry Verification", icon: ShieldCheck, action: retryVerification, live: true }] : []),
+    ...(purchase.payment_status === "completed" && (purchase.provisionStatus === "error" || purchase.provisionStatus === "queued") ? [{ label: "Retry Provision", icon: RotateCw, action: retryProvision, live: true }] : []),
+    { label: "View Raw Webhook", icon: FileText, action: () => setOpen(false), live: false },
   ];
 
   return (
@@ -185,6 +192,7 @@ function PurchaseDetailPanel({ purchaseId }: { purchaseId: string }) {
             <p className="text-zinc-400">Challenge: <span className="text-zinc-200">{detail.purchase.challenge_size}</span></p>
             <p className="text-zinc-400">Amount: <span className="text-zinc-200">₦{detail.purchase.price_paid.toLocaleString()}</span></p>
             <p className="text-zinc-400">Date: <span className="text-zinc-200">{fmtDateTime(detail.purchase.created_at)}</span></p>
+            <p className="text-zinc-400">Age: <span className="text-zinc-200">{fmtAge(detail.orderAgeMinutes)}</span></p>
           </div>
         </div>
         <div>
@@ -198,14 +206,11 @@ function PurchaseDetailPanel({ purchaseId }: { purchaseId: string }) {
         <div>
           <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-[#D4AF37]">Provision</h4>
           <div className="space-y-1 text-sm">
-            <p className="text-zinc-400">Status: <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${provisionStatusBadge(detail.provisionStatus)}`}>{detail.provisionStatus}</span></p>
-            {detail.assignedAccount && (
-              <>
-                <p className="text-zinc-400">MT5 Login: <span className="font-mono text-zinc-200">{detail.assignedAccount.account_login ?? "—"}</span></p>
-                <p className="text-zinc-400">Server: <span className="text-zinc-200">{detail.assignedAccount.server ?? "—"}</span></p>
-                <p className="text-zinc-400">Stage: <span className="text-zinc-200">{detail.assignedAccount.currentStage}</span></p>
-              </>
-            )}
+            <p className="text-zinc-400">Status: <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${provisionStatusBadge(detail.provision.status)}`}>{detail.provision.status === "waiting" ? "Waiting for Allocation" : detail.provision.status}</span></p>
+            <p className="text-zinc-400">MT5 Login: <span className="font-mono text-zinc-200">{detail.provision.mt5Login ?? "Not Assigned"}</span></p>
+            <p className="text-zinc-400">Server: <span className="text-zinc-200">{detail.provision.server ?? "—"}</span></p>
+            <p className="text-zinc-400">VPS: <span className="text-zinc-200">{detail.provision.vpsSlot ?? "—"}</span></p>
+            <p className="text-zinc-400">Credentials: <span className={detail.provision.credentialsSent ? "text-emerald-400" : "text-zinc-200"}>{detail.provision.credentialsSent ? "Sent" : "Not Sent"}</span></p>
           </div>
         </div>
       </div>
@@ -216,17 +221,23 @@ function PurchaseDetailPanel({ purchaseId }: { purchaseId: string }) {
           {detail.timeline.map((step, i) => (
             <div key={i} className="flex gap-3">
               <div className="flex flex-col items-center">
-                <div className={`flex h-5 w-5 items-center justify-center rounded-full ${step.reached ? "bg-[#D4AF37]" : "bg-white/10"}`}>
-                  {step.reached ? <CheckCircle2 className="h-3.5 w-3.5 text-black" strokeWidth={2.5} /> : <Circle className="h-2.5 w-2.5 text-zinc-600" strokeWidth={2} />}
+                <div className={`flex h-5 w-5 items-center justify-center rounded-full ${step.failed ? "bg-red-400" : step.reached ? "bg-[#D4AF37]" : "bg-white/10"}`}>
+                  {step.failed ? <XCircle className="h-3.5 w-3.5 text-black" strokeWidth={2.5} /> : step.reached ? <CheckCircle2 className="h-3.5 w-3.5 text-black" strokeWidth={2.5} /> : <Circle className="h-2.5 w-2.5 text-zinc-600" strokeWidth={2} />}
                 </div>
-                {i < detail.timeline.length - 1 && <div className={`w-px flex-1 ${step.reached ? "bg-[#D4AF37]/40" : "bg-white/10"}`} style={{ minHeight: "22px" }} />}
+                {i < detail.timeline.length - 1 && <div className={`w-px flex-1 ${step.reached || step.failed ? "bg-[#D4AF37]/40" : "bg-white/10"}`} style={{ minHeight: "22px" }} />}
               </div>
               <div className="pb-5">
-                <p className={`text-sm ${step.reached ? "text-zinc-200" : "text-zinc-600"}`}>{step.label}</p>
+                <p className={`text-sm ${step.failed ? "text-red-400" : step.reached ? "text-zinc-200" : "text-zinc-600"}`}>{step.label}</p>
                 <p className="text-xs text-zinc-600">{step.timestamp ? fmtDateTime(step.timestamp) : "Not yet reached"}</p>
               </div>
             </div>
           ))}
+          {detail.cancelled && (
+            <div className="mt-2 border-t border-white/10 pt-3">
+              <p className="text-xs font-medium uppercase tracking-wide text-zinc-600">Provision Cancelled</p>
+              <p className="mt-1 text-xs text-zinc-600">Payment failed — provisioning will never begin for this purchase.</p>
+            </div>
+          )}
         </div>
       </div>
     </div>

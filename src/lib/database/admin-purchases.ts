@@ -9,7 +9,7 @@ export interface PurchaseStats {
   refunded: number;
 }
 
-export type ProvisionStatus = "waiting" | "queued" | "provisioning" | "completed" | "error";
+export type ProvisionStatus = "waiting" | "queued" | "provisioning" | "completed" | "error" | "cancelled";
 
 export interface PurchaseRow {
   id: string;
@@ -33,6 +33,7 @@ export interface TimelineStep {
   label: string;
   timestamp: string | null;
   reached: boolean;
+  failed?: boolean;
 }
 
 export interface PurchaseDetail {
@@ -40,16 +41,26 @@ export interface PurchaseDetail {
   customer: { name: string | null; email: string; username: string | null; country: string | null };
   purchase: { challenge_size: string; price_paid: number; created_at: string };
   payment: { gateway: string; reference: string | null; status: string };
-  provisionStatus: ProvisionStatus;
-  assignedAccount: { account_login: string | null; server: string | null; currentStage: string } | null;
+  provision: {
+    status: ProvisionStatus;
+    mt5Login: string | null;
+    server: string | null;
+    vpsSlot: string | null;
+    credentialsSent: boolean;
+  };
+  orderAgeMinutes: number;
+  cancelled: boolean;
   timeline: TimelineStep[];
   matchedChallengeId: string | null;
   userId: string;
 }
 
 function deriveProvisionStatus(purchase: { payment_status: string }, matchedChallenge: any | null): { status: ProvisionStatus; needsAttention: boolean } {
+  if (purchase.payment_status === "failed") {
+    return { status: "cancelled", needsAttention: true };
+  }
   if (purchase.payment_status !== "completed") {
-    return { status: "waiting", needsAttention: purchase.payment_status === "failed" };
+    return { status: "waiting", needsAttention: false };
   }
   if (!matchedChallenge) {
     return { status: "error", needsAttention: true };
@@ -71,10 +82,6 @@ function currentStageLabel(status: string, phase: number): string {
   return status;
 }
 
-// Finds the best-matching user_challenge for a purchase — no direct
-// foreign key exists between challenge_purchases and user_challenges,
-// so we match by same user + closest timing, same proven technique
-// used for the Users page's journey grouping.
 function matchChallenge(purchase: { user_id: string; created_at: string }, challenges: any[]): any | null {
   const candidates = challenges.filter((c) => c.user_id === purchase.user_id);
   if (candidates.length === 0) return null;
@@ -205,40 +212,61 @@ export async function getPurchaseDetail(purchaseId: string): Promise<PurchaseDet
   const challenges = (challengesQuery.data as any[]) ?? [];
   const matched = matchChallenge(purchase, challenges);
 
-  let assignedAccount: PurchaseDetail["assignedAccount"] = null;
+  let mt5Login: string | null = null;
+  let server: string | null = null;
   let accountAssignedAt: string | null = null;
+  let vpsSlot: string | null = null;
 
   if (matched?.trading_account_id) {
     const accountQuery = await serviceClient.from("trading_accounts").select("login, server, assigned_at").eq("id", matched.trading_account_id).single();
     const account = accountQuery.data as any;
     if (account) {
-      assignedAccount = {
-        account_login: account.login,
-        server: account.server,
-        currentStage: currentStageLabel(matched.status, matched.current_phase),
-      };
+      mt5Login = account.login;
+      server = account.server;
       accountAssignedAt = account.assigned_at;
     }
+
+    const slotQuery = await serviceClient.from("vps_slots").select("slot_label").eq("current_user_challenge_id", matched.id).maybeSingle();
+    vpsSlot = (slotQuery.data as { slot_label: string } | null)?.slot_label ?? null;
   }
 
   const { status: provisionStatus } = deriveProvisionStatus(purchase, matched);
+  const credentialsSent = !!mt5Login; // our real code sends credentials synchronously at the moment of assignment — no separately tracked timestamp exists
+  const orderAgeMinutes = Math.round((Date.now() - new Date(purchase.created_at).getTime()) / 60000);
+  const cancelled = purchase.payment_status === "failed";
 
   const timeline: TimelineStep[] = [
     { label: "Purchase Created", timestamp: purchase.created_at, reached: true },
-    { label: "Payment Successful", timestamp: purchase.payment_confirmed_at, reached: purchase.payment_status === "completed" },
-    { label: "Challenge Created", timestamp: matched?.created_at ?? null, reached: !!matched },
-    { label: "Waiting for Provision", timestamp: matched?.status === "awaiting_allocation" ? matched.created_at : null, reached: !!matched },
-    { label: "Account Assigned", timestamp: accountAssignedAt, reached: !!assignedAccount },
-    { label: "Credentials Sent", timestamp: accountAssignedAt, reached: !!assignedAccount },
   ];
+
+  if (cancelled) {
+    timeline.push({ label: "Payment Failed", timestamp: purchase.updated_at ?? purchase.created_at, reached: true, failed: true });
+  } else {
+    timeline.push({ label: "Payment Verified", timestamp: purchase.payment_confirmed_at, reached: purchase.payment_status === "completed" });
+    timeline.push({ label: "Challenge Record Created", timestamp: matched?.created_at ?? null, reached: !!matched });
+    // Inventory Reserved and Account Assigned share the same real
+    // timestamp in our system — allocation is atomic, not two
+    // separately-tracked moments — but shown as two conceptual steps
+    // as requested.
+    timeline.push({ label: "Inventory Reserved", timestamp: accountAssignedAt, reached: !!mt5Login });
+    timeline.push({ label: "Account Assigned", timestamp: accountAssignedAt, reached: !!mt5Login });
+    timeline.push({ label: "Credentials Delivered", timestamp: accountAssignedAt, reached: credentialsSent });
+  }
 
   return {
     id: purchase.id,
     customer: { name: user?.full_name ?? null, email: user?.email ?? "unknown", username: user?.username ?? null, country: user?.country ?? null },
     purchase: { challenge_size: purchase.challenge_size, price_paid: Number(purchase.price_paid), created_at: purchase.created_at },
     payment: { gateway: "PalmPay", reference: purchase.payment_reference, status: purchase.payment_status },
-    provisionStatus,
-    assignedAccount,
+    provision: {
+      status: provisionStatus,
+      mt5Login,
+      server,
+      vpsSlot,
+      credentialsSent,
+    },
+    orderAgeMinutes,
+    cancelled,
     timeline,
     matchedChallengeId: matched?.id ?? null,
     userId: purchase.user_id,
