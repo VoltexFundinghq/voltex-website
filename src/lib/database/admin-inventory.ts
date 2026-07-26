@@ -3,13 +3,16 @@ import { createServiceClient } from "@/lib/supabase/service";
 export interface InventoryStats {
   totalAccounts: number;
   available: number;
-  assignedToChallenge: number;
-  assignedToFunded: number;
+  assignedEvaluation: number;
+  assignedFunded: number;
   retired: number;
-  healthPercent: number;
+  healthLabel: string;
+  healthDetail: string;
+  healthLevel: "healthy" | "low" | "critical";
 }
 
 export type InventoryStage = "Available" | "Phase 1" | "Phase 2" | "Funded" | "Retired" | "Deleted" | "Reserved";
+export type VpsStatus = "not_assigned" | "assigned" | "monitoring" | "offline" | "error";
 
 export interface InventoryRow {
   id: string;
@@ -17,13 +20,16 @@ export interface InventoryRow {
   server: string | null;
   accountSize: number;
   stage: InventoryStage;
-  assignedTraderEmail: string | null;
-  balance: number | null;
-  equity: number | null;
+  assignedTraderName: string | null;
+  assignedPhaseLabel: string | null;
+  startingBalance: number;
+  currentBalance: number | null;
+  currentEquity: number | null;
   vpsSlot: string | null;
-  provisionStatus: "Provisioned" | "Available" | "Data Inconsistency";
+  vpsStatus: VpsStatus;
   createdAt: string;
   lastSync: string | null;
+  hasLinkedChallenge: boolean;
 }
 
 export interface InventoryListResult {
@@ -38,44 +44,35 @@ export interface LifecycleStep {
   current?: boolean;
 }
 
-export interface BalanceResetEntry {
-  amount: number;
-  processedAt: string;
-}
-
 export interface InventoryDetail {
-  account: { login: string; investorPasswordMasked: string; server: string | null; accountSize: number; createdAt: string };
-  assignment: { traderEmail: string | null; purchaseDate: string | null; challengeSize: number | null; currentPhase: number | null; assignedDate: string | null } | null;
-  vps: { slot: string | null; monitorStatus: "online" | "delayed" | "offline" | "not_assigned"; lastHeartbeat: string | null };
+  account: { login: string; investorPasswordMasked: string; server: string | null; accountSize: number; stage: InventoryStage; startingBalance: number; currentBalance: number | null; currentEquity: number | null; createdAt: string };
+  assignment: { traderName: string | null; traderEmail: string | null; currentPhase: number | null; purchaseReference: string | null; assignedDate: string | null } | null;
+  vps: { status: VpsStatus; slot: string | null; lastHeartbeat: string | null };
   lifecycle: LifecycleStep[];
-  balanceResetHistory: BalanceResetEntry[];
-  stage: InventoryStage;
-  linkedChallengeId: string | null;
-  userId: string | null;
+  fundedInfo: { balanceResetCount: number; lastBalanceReset: string | null; profitSplit: number | null; payoutCount: number } | null;
+  retiredInfo: { reason: "Failed Challenge" | "Manual Retirement"; retirementDate: string | null; daysRemaining: number | null } | null;
 }
 
 export interface InventoryMonitoring {
   available: number;
-  lowInventorySizes: number[];
+  assignedEvaluation: number;
+  assignedFunded: number;
+  retired: number;
+  awaitingVpsConnection: number;
   offlineVps: number;
-  provisionErrors: number;
-  waitingAssignment: number;
-  waitingDeletion: number;
-  newestAccounts: { login: string; createdAt: string }[];
-  oldestAvailable: { login: string; createdAt: string }[];
+  provisionQueueSize: number;
 }
 
 export interface InventoryCharts {
   byStage: { stage: string; count: number }[];
   bySize: { size: string; count: number }[];
-  assignmentsThisMonth: number;
-  retiredCount: number;
   availableCapacity: { size: string; available: number }[];
 }
 
 const LOW_INVENTORY_THRESHOLD = 3;
 const STALE_SYNC_SECONDS = 60;
 const OFFLINE_SYNC_SECONDS = 300;
+const DELETION_WINDOW_DAYS = 21;
 
 function maskPassword(pw: string | null): string {
   if (!pw) return "—";
@@ -94,6 +91,14 @@ function determineStage(accountStatus: string, linkedPhase: number | null): Inve
   return "Available";
 }
 
+function determineVpsStatus(accountStatus: string, linked: any | null, vpsSlot: string | null): VpsStatus {
+  if (accountStatus !== "assigned") return "not_assigned";
+  if (!linked) return "error"; // assigned but no active challenge found — genuine data inconsistency
+  if (!vpsSlot) return "assigned"; // linked, but no poller has picked it up yet
+  const isOffline = !linked.last_known_check_at || (Date.now() - new Date(linked.last_known_check_at).getTime()) > OFFLINE_SYNC_SECONDS * 1000;
+  return isOffline ? "offline" : "monitoring";
+}
+
 async function getLinkedChallengeMap(serviceClient: ReturnType<typeof createServiceClient>, accountIds: string[]) {
   if (accountIds.length === 0) return new Map<string, any>();
   const query = await serviceClient
@@ -102,7 +107,7 @@ async function getLinkedChallengeMap(serviceClient: ReturnType<typeof createServ
     .in("trading_account_id", accountIds)
     .eq("status", "active");
   const map = new Map<string, any>();
-  for (const c of (query.data as any[]) ?? []) map.set(c.trading_account_id, c);
+  for (const c of ((query.data ?? []) as unknown as any[])) map.set(c.trading_account_id, c);
   return map;
 }
 
@@ -110,30 +115,47 @@ export async function getInventoryStats(): Promise<InventoryStats> {
   const serviceClient = createServiceClient();
 
   const accountsQuery = await serviceClient.from("trading_accounts").select("id, status");
-  const accounts = (accountsQuery.data as { id: string; status: string }[]) ?? [];
+  const accounts = ((accountsQuery.data ?? []) as unknown as { id: string; status: string }[]);
 
   const assignedIds = accounts.filter((a) => a.status === "assigned").map((a) => a.id);
   const challengeMap = await getLinkedChallengeMap(serviceClient, assignedIds);
 
-  let assignedChallenge = 0, assignedFunded = 0;
+  let assignedEvaluation = 0, assignedFunded = 0;
   for (const a of accounts) {
     if (a.status !== "assigned") continue;
     const linked = challengeMap.get(a.id);
     if (linked?.current_phase === 3) assignedFunded++;
-    else assignedChallenge++;
+    else assignedEvaluation++;
   }
 
   const available = accounts.filter((a) => a.status === "available").length;
   const retired = accounts.filter((a) => a.status === "resetting").length;
   const total = accounts.length;
 
+  let healthLabel: string, healthDetail: string, healthLevel: "healthy" | "low" | "critical";
+  if (available === 0) {
+    healthLabel = "Provisioning Required";
+    healthDetail = "No Available Accounts";
+    healthLevel = "critical";
+  } else if (available < LOW_INVENTORY_THRESHOLD) {
+    healthLabel = "Low Inventory";
+    healthDetail = `${available} Available`;
+    healthLevel = "low";
+  } else {
+    healthLabel = "Healthy";
+    healthDetail = `${available} Available`;
+    healthLevel = "healthy";
+  }
+
   return {
     totalAccounts: total,
     available,
-    assignedToChallenge: assignedChallenge,
-    assignedToFunded: assignedFunded,
+    assignedEvaluation,
+    assignedFunded,
     retired,
-    healthPercent: total > 0 ? Math.round((available / total) * 100) : 0,
+    healthLabel,
+    healthDetail,
+    healthLevel,
   };
 }
 
@@ -154,28 +176,29 @@ export async function getInventoryPage(params: {
   }
 
   const allMatchingQuery = await query.order("created_at", { ascending: false });
-  let rows = (allMatchingQuery.data as any[]) ?? [];
+  let rows = ((allMatchingQuery.data ?? []) as unknown as any[]);
 
   const accountIds = rows.map((r) => r.id);
   const challengeMap = await getLinkedChallengeMap(serviceClient, accountIds);
 
   const userIds = [...new Set([...challengeMap.values()].map((c) => c.user_id))];
   const usersQuery = userIds.length > 0
-    ? await serviceClient.from("users").select("id, email").in("id", userIds)
+    ? await serviceClient.from("users").select("id, full_name, email").in("id", userIds)
     : { data: [] as any[] };
-  const emailById = new Map((usersQuery.data as any[] ?? []).map((u) => [u.id, u.email]));
+  const userById = new Map(((usersQuery.data ?? []) as unknown as any[]).map((u) => [u.id, u]));
 
   const linkedChallengeIds = [...challengeMap.values()].map((c) => c.id);
   const slotsQuery = linkedChallengeIds.length > 0
     ? await serviceClient.from("vps_slots").select("slot_label, current_user_challenge_id").in("current_user_challenge_id", linkedChallengeIds)
     : { data: [] as any[] };
-  const slotByChallenge = new Map((slotsQuery.data as any[] ?? []).map((s) => [s.current_user_challenge_id, s.slot_label]));
+  const slotByChallenge = new Map(((slotsQuery.data ?? []) as unknown as any[]).map((s) => [s.current_user_challenge_id, s.slot_label]));
 
   let enriched: InventoryRow[] = rows.map((r) => {
     const linked = challengeMap.get(r.id);
     const stage = determineStage(r.status, linked?.current_phase ?? null);
-    const provisionStatus: InventoryRow["provisionStatus"] =
-      r.status === "assigned" && !linked ? "Data Inconsistency" : r.status === "assigned" ? "Provisioned" : "Available";
+    const vpsSlot = linked ? slotByChallenge.get(linked.id) ?? null : null;
+    const vpsStatus = determineVpsStatus(r.status, linked ?? null, vpsSlot);
+    const user = linked ? userById.get(linked.user_id) : null;
 
     return {
       id: r.id,
@@ -183,13 +206,16 @@ export async function getInventoryPage(params: {
       server: r.server,
       accountSize: r.account_size,
       stage,
-      assignedTraderEmail: linked ? emailById.get(linked.user_id) ?? null : null,
-      balance: linked?.last_known_balance ?? null,
-      equity: linked?.last_known_equity ?? null,
-      vpsSlot: linked ? slotByChallenge.get(linked.id) ?? null : null,
-      provisionStatus,
+      assignedTraderName: user?.full_name ?? user?.email ?? null,
+      assignedPhaseLabel: linked ? (linked.current_phase === 3 ? "Funded" : `Phase ${linked.current_phase}`) : null,
+      startingBalance: r.account_size,
+      currentBalance: linked?.last_known_balance ?? null,
+      currentEquity: linked?.last_known_equity ?? null,
+      vpsSlot,
+      vpsStatus,
       createdAt: r.created_at,
       lastSync: linked?.last_known_check_at ?? null,
+      hasLinkedChallenge: !!linked,
     };
   });
 
@@ -212,82 +238,103 @@ export async function getInventoryDetail(accountId: string): Promise<InventoryDe
   const account = accountQuery.data as any;
   if (accountQuery.error || !account) return null;
 
-  const challengeQuery = await serviceClient
+  const activeChallengeQuery = await serviceClient
     .from("user_challenges")
     .select("*")
     .eq("trading_account_id", accountId)
-    .order("created_at", { ascending: false })
-    .limit(1)
+    .eq("status", "active")
     .maybeSingle();
-  const challenge = challengeQuery.data as any;
+  const challenge = activeChallengeQuery.data as any;
 
   const stage = determineStage(account.status, challenge?.current_phase ?? null);
 
   let assignment: InventoryDetail["assignment"] = null;
   let vpsSlot: string | null = null;
   let lifecycle: LifecycleStep[] = [
-    { label: "Created", timestamp: account.created_at, reached: true },
-    { label: "Available", timestamp: account.created_at, reached: true },
+    { label: "Inventory Created", timestamp: account.created_at, reached: true },
   ];
-  let balanceResetHistory: BalanceResetEntry[] = [];
+  let fundedInfo: InventoryDetail["fundedInfo"] = null;
+  let retiredInfo: InventoryDetail["retiredInfo"] = null;
 
   if (challenge) {
-    const userQuery = await serviceClient.from("users").select("email").eq("id", challenge.user_id).single();
-    const user = userQuery.data as { email: string } | null;
+    const userQuery = await serviceClient.from("users").select("full_name, email").eq("id", challenge.user_id).single();
+    const user = userQuery.data as { full_name: string | null; email: string } | null;
 
     const purchasesQuery = await serviceClient
       .from("challenge_purchases")
-      .select("created_at")
+      .select("id, created_at")
       .eq("user_id", challenge.user_id)
       .order("created_at", { ascending: false });
-    const purchases = (purchasesQuery.data as { created_at: string }[]) ?? [];
+    const purchases = ((purchasesQuery.data ?? []) as unknown as { id: string; created_at: string }[]);
     const closestPurchase = purchases.find((p) => new Date(p.created_at) <= new Date(challenge.created_at)) ?? purchases[purchases.length - 1];
 
     assignment = {
+      traderName: user?.full_name ?? null,
       traderEmail: user?.email ?? null,
-      purchaseDate: closestPurchase?.created_at ?? null,
-      challengeSize: account.account_size,
       currentPhase: challenge.current_phase,
+      purchaseReference: closestPurchase?.id ?? null,
       assignedDate: account.assigned_at,
     };
 
     const slotQuery = await serviceClient.from("vps_slots").select("slot_label").eq("current_user_challenge_id", challenge.id).maybeSingle();
     vpsSlot = (slotQuery.data as { slot_label: string } | null)?.slot_label ?? null;
 
-    const payoutsQuery = await serviceClient
-      .from("payout_requests")
-      .select("amount, status, processed_at")
-      .eq("user_id", challenge.user_id)
-      .in("status", ["approved", "completed"])
-      .not("processed_at", "is", null)
-      .order("processed_at", { ascending: true });
-    balanceResetHistory = ((payoutsQuery.data ?? []) as unknown as any[]).map((p) => ({ amount: Number(p.amount), processedAt: p.processed_at }));
-
-    lifecycle.push({ label: "Assigned", timestamp: account.assigned_at ?? challenge.created_at, reached: true });
+    lifecycle.push({ label: "Assigned to Trader", timestamp: account.assigned_at ?? challenge.created_at, reached: true });
     lifecycle.push({ label: "Phase 1", timestamp: challenge.created_at, reached: true, current: challenge.current_phase === 1 });
     lifecycle.push({ label: "Phase 2", timestamp: challenge.phase1_passed_at, reached: challenge.current_phase >= 2, current: challenge.current_phase === 2 });
-    lifecycle.push({ label: "Funded", timestamp: challenge.current_phase === 3 ? challenge.created_at : null, reached: challenge.current_phase === 3, current: challenge.current_phase === 3 && balanceResetHistory.length === 0 });
+    lifecycle.push({ label: "Funded", timestamp: challenge.current_phase === 3 ? challenge.created_at : null, reached: challenge.current_phase === 3, current: challenge.current_phase === 3 });
 
-    if (balanceResetHistory.length > 0) {
-      lifecycle.push({ label: `Balance Reset (×${balanceResetHistory.length})`, timestamp: balanceResetHistory[balanceResetHistory.length - 1].processedAt, reached: true, current: true });
+    if (challenge.current_phase === 3) {
+      const payoutsQuery = await serviceClient
+        .from("payout_requests")
+        .select("amount, status, requested_at, processed_at")
+        .eq("user_id", challenge.user_id)
+        .gte("requested_at", challenge.created_at)
+        .order("requested_at", { ascending: true });
+      const payouts = ((payoutsQuery.data ?? []) as unknown as any[]);
+      const approved = payouts.filter((p) => p.status === "approved" || p.status === "completed");
+      const resetsWithDate = approved.filter((p) => p.processed_at);
+
+      fundedInfo = {
+        balanceResetCount: resetsWithDate.length,
+        lastBalanceReset: resetsWithDate.length > 0 ? resetsWithDate[resetsWithDate.length - 1].processed_at : null,
+        profitSplit: Number(challenge.profit_split),
+        payoutCount: approved.length,
+      };
     }
   } else {
-    // No linked challenge found at all — either genuinely still
-    // available, or (if account.status === 'assigned') a real data
-    // inconsistency worth surfacing rather than hiding.
-    lifecycle.push({ label: "Assigned", timestamp: null, reached: account.status !== "available" });
+    lifecycle.push({ label: "Assigned to Trader", timestamp: null, reached: account.status !== "available" });
     lifecycle.push({ label: "Phase 1", timestamp: null, reached: false });
     lifecycle.push({ label: "Phase 2", timestamp: null, reached: false });
     lifecycle.push({ label: "Funded", timestamp: null, reached: false });
   }
 
   const isRetired = account.status === "resetting" || account.status === "expired";
-  lifecycle.push({ label: "Retired", timestamp: isRetired ? (account.last_reset_at ?? null) : null, reached: isRetired, current: account.status === "resetting" });
+  lifecycle.push({ label: isRetired ? "Retired" : "Retired (if applicable)", timestamp: isRetired ? account.last_reset_at : null, reached: isRetired, current: account.status === "resetting" });
   lifecycle.push({ label: "Deleted By Exness", timestamp: account.status === "expired" ? account.last_reset_at : null, reached: account.status === "expired" });
 
-  const isStale = !challenge?.last_known_check_at || (Date.now() - new Date(challenge.last_known_check_at).getTime()) > STALE_SYNC_SECONDS * 1000;
-  const isOffline = !challenge?.last_known_check_at || (Date.now() - new Date(challenge.last_known_check_at).getTime()) > OFFLINE_SYNC_SECONDS * 1000;
-  const monitorStatus: InventoryDetail["vps"]["monitorStatus"] = !challenge ? "not_assigned" : isOffline ? "offline" : isStale ? "delayed" : "online";
+  if (isRetired) {
+    const failedChallengeQuery = await serviceClient
+      .from("user_challenges")
+      .select("id, completed_at")
+      .eq("trading_account_id", accountId)
+      .eq("status", "failed")
+      .maybeSingle();
+    const failedChallenge = failedChallengeQuery.data as { id: string; completed_at: string | null } | null;
+
+    const reason: "Failed Challenge" | "Manual Retirement" = failedChallenge ? "Failed Challenge" : "Manual Retirement";
+    const retirementDate = failedChallenge?.completed_at ?? account.last_reset_at ?? null;
+
+    let daysRemaining: number | null = null;
+    if (account.status === "resetting" && account.last_known_activity_at) {
+      const daysSince = Math.floor((Date.now() - new Date(account.last_known_activity_at).getTime()) / (1000 * 60 * 60 * 24));
+      daysRemaining = DELETION_WINDOW_DAYS - daysSince;
+    }
+
+    retiredInfo = { reason, retirementDate, daysRemaining };
+  }
+
+  const vpsStatus = determineVpsStatus(account.status, challenge ?? null, vpsSlot);
 
   return {
     account: {
@@ -295,58 +342,71 @@ export async function getInventoryDetail(accountId: string): Promise<InventoryDe
       investorPasswordMasked: maskPassword(account.investor_password),
       server: account.server,
       accountSize: account.account_size,
+      stage,
+      startingBalance: account.account_size,
+      currentBalance: challenge?.last_known_balance ?? null,
+      currentEquity: challenge?.last_known_equity ?? null,
       createdAt: account.created_at,
     },
     assignment,
-    vps: { slot: vpsSlot, monitorStatus, lastHeartbeat: challenge?.last_known_check_at ?? null },
+    vps: { status: vpsStatus, slot: vpsSlot, lastHeartbeat: challenge?.last_known_check_at ?? null },
     lifecycle,
-    balanceResetHistory,
-    stage,
-    linkedChallengeId: challenge?.id ?? null,
-    userId: challenge?.user_id ?? null,
+    fundedInfo,
+    retiredInfo,
   };
 }
 
 export async function getInventoryMonitoring(): Promise<InventoryMonitoring> {
   const serviceClient = createServiceClient();
 
-  const accountsQuery = await serviceClient.from("trading_accounts").select("id, login, status, account_size, created_at");
-  const accounts = (accountsQuery.data as any[]) ?? [];
-
-  const bySize = new Map<number, number>();
-  for (const a of accounts.filter((a) => a.status === "available")) {
-    bySize.set(a.account_size, (bySize.get(a.account_size) ?? 0) + 1);
-  }
-  const lowInventorySizes = [...bySize.entries()].filter(([, count]) => count < LOW_INVENTORY_THRESHOLD).map(([size]) => size);
+  const accountsQuery = await serviceClient.from("trading_accounts").select("id, status");
+  const accounts = ((accountsQuery.data ?? []) as unknown as { id: string; status: string }[]);
 
   const assignedIds = accounts.filter((a) => a.status === "assigned").map((a) => a.id);
-  const challengesQuery = assignedIds.length > 0
-    ? await serviceClient.from("user_challenges").select("trading_account_id, last_known_check_at").in("trading_account_id", assignedIds).eq("status", "active")
+  const challengeMap = await getLinkedChallengeMap(serviceClient, assignedIds);
+
+  const linkedChallengeIds = [...challengeMap.values()].map((c) => c.id);
+  const slotsQuery = linkedChallengeIds.length > 0
+    ? await serviceClient.from("vps_slots").select("slot_label, current_user_challenge_id").in("current_user_challenge_id", linkedChallengeIds)
     : { data: [] as any[] };
-  const offlineVps = ((challengesQuery.data as any[]) ?? []).filter((c) => !c.last_known_check_at || (Date.now() - new Date(c.last_known_check_at).getTime()) > OFFLINE_SYNC_SECONDS * 1000).length;
+  const slotByChallenge = new Map(((slotsQuery.data ?? []) as unknown as any[]).map((s) => [s.current_user_challenge_id, s.slot_label]));
 
-  const waitingAssignmentQuery = await serviceClient.from("user_challenges").select("id", { count: "exact", head: true }).eq("status", "awaiting_allocation");
+  let assignedEvaluation = 0, assignedFunded = 0, awaitingVpsConnection = 0, offlineVps = 0;
 
-  const availableAccounts = accounts.filter((a) => a.status === "available").sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
-  const newestAccounts = [...accounts].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).slice(0, 5).map((a) => ({ login: a.login, createdAt: a.created_at }));
+  for (const a of accounts) {
+    if (a.status !== "assigned") continue;
+    const linked = challengeMap.get(a.id);
+    if (linked?.current_phase === 3) assignedFunded++;
+    else assignedEvaluation++;
+
+    if (linked) {
+      const vpsSlot = slotByChallenge.get(linked.id);
+      if (!vpsSlot) awaitingVpsConnection++;
+      else {
+        const isOffline = !linked.last_known_check_at || (Date.now() - new Date(linked.last_known_check_at).getTime()) > OFFLINE_SYNC_SECONDS * 1000;
+        if (isOffline) offlineVps++;
+      }
+    }
+  }
+
+  const queueQuery = await serviceClient.from("user_challenges").select("id", { count: "exact", head: true }).eq("status", "awaiting_allocation");
 
   return {
     available: accounts.filter((a) => a.status === "available").length,
-    lowInventorySizes,
+    assignedEvaluation,
+    assignedFunded,
+    retired: accounts.filter((a) => a.status === "resetting").length,
+    awaitingVpsConnection,
     offlineVps,
-    provisionErrors: waitingAssignmentQuery.count ?? 0,
-    waitingAssignment: waitingAssignmentQuery.count ?? 0,
-    waitingDeletion: accounts.filter((a) => a.status === "resetting").length,
-    newestAccounts,
-    oldestAvailable: availableAccounts.slice(0, 5).map((a) => ({ login: a.login, createdAt: a.created_at })),
+    provisionQueueSize: queueQuery.count ?? 0,
   };
 }
 
 export async function getInventoryCharts(): Promise<InventoryCharts> {
   const serviceClient = createServiceClient();
 
-  const accountsQuery = await serviceClient.from("trading_accounts").select("id, status, account_size, assigned_at");
-  const accounts = (accountsQuery.data as any[]) ?? [];
+  const accountsQuery = await serviceClient.from("trading_accounts").select("id, status, account_size");
+  const accounts = ((accountsQuery.data ?? []) as unknown as any[]);
 
   const assignedIds = accounts.filter((a) => a.status === "assigned").map((a) => a.id);
   const challengeMap = await getLinkedChallengeMap(serviceClient, assignedIds);
@@ -363,15 +423,9 @@ export async function getInventoryCharts(): Promise<InventoryCharts> {
     if (a.status === "available") availableBySize.set(a.account_size, (availableBySize.get(a.account_size) ?? 0) + 1);
   }
 
-  const monthStart = new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), 1)).toISOString();
-  const assignmentsThisMonth = accounts.filter((a) => a.assigned_at && a.assigned_at >= monthStart).length;
-  const retiredCount = accounts.filter((a) => a.status === "resetting" || a.status === "expired").length;
-
   return {
     byStage: [...stageCounts.entries()].map(([stage, count]) => ({ stage, count })),
     bySize: [...sizeCounts.entries()].sort((a, b) => a[0] - b[0]).map(([size, count]) => ({ size: `₦${size.toLocaleString()}`, count })),
-    assignmentsThisMonth,
-    retiredCount,
     availableCapacity: [...availableBySize.entries()].sort((a, b) => a[0] - b[0]).map(([size, available]) => ({ size: `₦${size.toLocaleString()}`, available })),
   };
 }
@@ -383,7 +437,7 @@ export async function getAwaitingAllocationForSize(accountSize: number) {
     .from("user_challenges")
     .select("id, user_id, challenge_id, created_at")
     .eq("status", "awaiting_allocation");
-  const rows = (query.data as any[]) ?? [];
+  const rows = ((query.data ?? []) as unknown as any[]);
 
   const matching = rows.filter((r) => {
     const match = r.challenge_id.match(/(\d+)k/i);
@@ -392,7 +446,7 @@ export async function getAwaitingAllocationForSize(accountSize: number) {
 
   const userIds = matching.map((r) => r.user_id);
   const usersQuery = userIds.length > 0 ? await serviceClient.from("users").select("id, email").in("id", userIds) : { data: [] as any[] };
-  const emailById = new Map((usersQuery.data as any[] ?? []).map((u) => [u.id, u.email]));
+  const emailById = new Map(((usersQuery.data ?? []) as unknown as any[]).map((u) => [u.id, u.email]));
 
   return matching.map((r) => ({ challengeId: r.id, email: emailById.get(r.user_id) ?? "unknown", requestedAt: r.created_at }));
 }

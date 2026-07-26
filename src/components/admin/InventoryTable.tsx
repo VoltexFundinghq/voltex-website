@@ -13,26 +13,27 @@ interface InventoryRow {
   server: string | null;
   accountSize: number;
   stage: string;
-  assignedTraderEmail: string | null;
-  balance: number | null;
-  equity: number | null;
+  assignedTraderName: string | null;
+  assignedPhaseLabel: string | null;
+  startingBalance: number;
+  currentBalance: number | null;
+  currentEquity: number | null;
   vpsSlot: string | null;
-  provisionStatus: string;
+  vpsStatus: string;
   createdAt: string;
   lastSync: string | null;
+  hasLinkedChallenge: boolean;
 }
 
 interface LifecycleStep { label: string; timestamp: string | null; reached: boolean; current?: boolean }
-interface BalanceResetEntry { amount: number; processedAt: string }
 
 interface InventoryDetail {
-  account: { login: string; investorPasswordMasked: string; server: string | null; accountSize: number; createdAt: string };
-  assignment: { traderEmail: string | null; purchaseDate: string | null; challengeSize: number | null; currentPhase: number | null; assignedDate: string | null } | null;
-  vps: { slot: string | null; monitorStatus: string; lastHeartbeat: string | null };
+  account: { login: string; investorPasswordMasked: string; server: string | null; accountSize: number; stage: string; startingBalance: number; currentBalance: number | null; currentEquity: number | null; createdAt: string };
+  assignment: { traderName: string | null; traderEmail: string | null; currentPhase: number | null; purchaseReference: string | null; assignedDate: string | null } | null;
+  vps: { status: string; slot: string | null; lastHeartbeat: string | null };
   lifecycle: LifecycleStep[];
-  balanceResetHistory: BalanceResetEntry[];
-  stage: string;
-  linkedChallengeId: string | null;
+  fundedInfo: { balanceResetCount: number; lastBalanceReset: string | null; profitSplit: number | null; payoutCount: number } | null;
+  retiredInfo: { reason: string; retirementDate: string | null; daysRemaining: number | null } | null;
 }
 
 const FILTERS = [
@@ -59,8 +60,17 @@ function fmtDateTime(dateStr: string | null): string {
   if (!dateStr) return "—";
   return new Date(dateStr).toLocaleString();
 }
-function timeAgo(dateStr: string | null): string {
-  if (!dateStr) return "never";
+function lastSyncLabel(row: InventoryRow): string {
+  if (!row.hasLinkedChallenge) return "Never Connected";
+  if (!row.lastSync) return "Waiting First Sync";
+  const seconds = Math.floor((Date.now() - new Date(row.lastSync).getTime()) / 1000);
+  if (seconds < 60) return `${seconds}s ago`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+  return `${Math.floor(seconds / 86400)}d ago`;
+}
+function heartbeatLabel(dateStr: string | null): string {
+  if (!dateStr) return "Waiting First Sync";
   const seconds = Math.floor((Date.now() - new Date(dateStr).getTime()) / 1000);
   if (seconds < 60) return `${seconds}s ago`;
   if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
@@ -75,6 +85,14 @@ function stageBadge(stage: string): string {
   if (stage === "Retired") return "bg-white/5 text-zinc-400";
   if (stage === "Deleted") return "bg-red-400/10 text-red-400";
   return "bg-amber-400/10 text-amber-400";
+}
+
+function vpsBadge(status: string): { label: string; className: string } {
+  if (status === "monitoring") return { label: "Monitoring", className: "bg-emerald-400/10 text-emerald-400" };
+  if (status === "assigned") return { label: "Assigned", className: "bg-blue-400/10 text-blue-400" };
+  if (status === "offline") return { label: "Offline", className: "bg-red-400/10 text-red-400" };
+  if (status === "error") return { label: "Error", className: "bg-red-400/10 text-red-400" };
+  return { label: "Not Assigned", className: "bg-white/5 text-zinc-500" };
 }
 
 function AssignModal({ accountId, onClose, onAssigned }: { accountId: string; onClose: () => void; onAssigned: () => void }) {
@@ -176,8 +194,8 @@ function ActionsMenu({ account, onUpdated }: { account: InventoryRow; onUpdated:
   const items = [
     ...(account.stage === "Available" ? [{ label: "Assign To Trader", icon: UserPlus, action: () => { setShowAssign(true); setOpen(false); } }] : []),
     { label: "Open VPS", icon: Server, action: () => setOpen(false) },
-    ...(account.assignedTraderEmail ? [{ label: "View Trader", icon: Users2, action: () => setOpen(false) }, { label: "View Purchase", icon: Receipt, action: () => setOpen(false) }] : []),
-    ...(account.stage !== "Retired" && account.stage !== "Deleted" && account.stage !== "Available" ? [{ label: "Retire Account", icon: ExternalLink, action: retire }] : []),
+    ...(account.assignedTraderName ? [{ label: "View Trader", icon: Users2, action: () => setOpen(false) }, { label: "View Purchase", icon: Receipt, action: () => setOpen(false) }] : []),
+    ...(account.stage !== "Retired" && account.stage !== "Deleted" ? [{ label: "Retire Account", icon: ExternalLink, action: retire }] : []),
     ...(account.stage === "Retired" ? [{ label: "Mark Deleted", icon: Trash2, action: markDeleted }] : []),
   ];
 
@@ -222,6 +240,8 @@ function InventoryDetailPanel({ accountId }: { accountId: string }) {
   if (loading) return <div className="bg-black/30 p-6 text-sm text-zinc-500">Loading...</div>;
   if (!detail) return <div className="bg-black/30 p-6 text-sm text-zinc-600">Could not load account detail.</div>;
 
+  const vBadge = vpsBadge(detail.vps.status);
+
   return (
     <div className="grid gap-6 bg-black/30 p-6 md:grid-cols-3">
       <div className="space-y-5">
@@ -232,33 +252,63 @@ function InventoryDetailPanel({ accountId }: { accountId: string }) {
             <p className="text-zinc-400">Investor Password: <span className="font-mono text-zinc-200">{detail.account.investorPasswordMasked}</span></p>
             <p className="text-zinc-400">Server: <span className="text-zinc-200">{detail.account.server ?? "—"}</span></p>
             <p className="text-zinc-400">Size: <span className="text-zinc-200">{fmtMoney(detail.account.accountSize)}</span></p>
+            <p className="text-zinc-400">Stage: <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${stageBadge(detail.account.stage)}`}>{detail.account.stage}</span></p>
+            <p className="text-zinc-400">Starting Balance: <span className="text-zinc-200">{fmtMoney(detail.account.startingBalance)}</span></p>
+            {detail.account.currentBalance !== null && <p className="text-zinc-400">Current Balance: <span className="text-zinc-200">{fmtMoney(detail.account.currentBalance)}</span></p>}
+            {detail.account.currentEquity !== null && <p className="text-zinc-400">Current Equity: <span className="text-zinc-200">{fmtMoney(detail.account.currentEquity)}</span></p>}
             <p className="text-zinc-400">Created: <span className="text-zinc-200">{fmtDate(detail.account.createdAt)}</span></p>
           </div>
         </div>
+
         <div>
           <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-[#D4AF37]">Assignment</h4>
           {detail.assignment ? (
             <div className="space-y-1 text-sm">
-              <p className="text-zinc-400">Trader: <span className="text-zinc-200">{detail.assignment.traderEmail ?? "—"}</span></p>
-              <p className="text-zinc-400">Purchased: <span className="text-zinc-200">{fmtDate(detail.assignment.purchaseDate)}</span></p>
+              <p className="text-zinc-400">Trader: <span className="text-zinc-200">{detail.assignment.traderName ?? "—"}</span></p>
+              <p className="text-zinc-400">Email: <span className="text-zinc-200">{detail.assignment.traderEmail ?? "—"}</span></p>
               <p className="text-zinc-400">Phase: <span className="text-zinc-200">{detail.assignment.currentPhase === 3 ? "Funded" : detail.assignment.currentPhase}</span></p>
+              <p className="text-zinc-400">Purchase Ref: <span className="font-mono text-xs text-zinc-500">{detail.assignment.purchaseReference ?? "—"}</span></p>
               <p className="text-zinc-400">Assigned: <span className="text-zinc-200">{fmtDate(detail.assignment.assignedDate)}</span></p>
             </div>
           ) : (
-            <p className="text-sm text-zinc-600">This account has never been assigned to a trader.</p>
+            <p className="text-sm text-zinc-600">Available for Provisioning</p>
           )}
         </div>
+
         <div>
           <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-[#D4AF37]">VPS</h4>
           <div className="space-y-1 text-sm">
-            <p className="text-zinc-400">Slot: <span className="text-zinc-200">{detail.vps.slot ?? "Not assigned"}</span></p>
-            <p className="text-zinc-400">Monitor Status: <span className="capitalize text-zinc-200">{detail.vps.monitorStatus.replace("_", " ")}</span></p>
-            <p className="text-zinc-400">Last Sync: <span className="text-zinc-200">{timeAgo(detail.vps.lastHeartbeat)}</span></p>
+            <p className="text-zinc-400">Status: <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${vBadge.className}`}>{vBadge.label}</span></p>
+            <p className="text-zinc-400">VPS Name: <span className="text-zinc-200">{detail.vps.slot ?? "—"}</span></p>
+            <p className="text-zinc-400">Last Heartbeat: <span className="text-zinc-200">{heartbeatLabel(detail.vps.lastHeartbeat)}</span></p>
           </div>
         </div>
+
+        {detail.fundedInfo && (
+          <div>
+            <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-[#D4AF37]">Funded Account</h4>
+            <div className="space-y-1 text-sm">
+              <p className="text-zinc-400">Balance Resets: <span className="text-zinc-200">{detail.fundedInfo.balanceResetCount}</span></p>
+              <p className="text-zinc-400">Last Reset: <span className="text-zinc-200">{fmtDateTime(detail.fundedInfo.lastBalanceReset)}</span></p>
+              <p className="text-zinc-400">Profit Split: <span className="text-zinc-200">{detail.fundedInfo.profitSplit}%</span></p>
+              <p className="text-zinc-400">Payout Count: <span className="text-zinc-200">{detail.fundedInfo.payoutCount}</span></p>
+            </div>
+          </div>
+        )}
+
+        {detail.retiredInfo && (
+          <div>
+            <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-[#D4AF37]">Retirement</h4>
+            <div className="space-y-1 text-sm">
+              <p className="text-zinc-400">Reason: <span className="text-zinc-200">{detail.retiredInfo.reason}</span></p>
+              <p className="text-zinc-400">Retired: <span className="text-zinc-200">{fmtDate(detail.retiredInfo.retirementDate)}</span></p>
+              <p className="text-zinc-400">Exness Auto Delete: <span className="text-zinc-200">{detail.retiredInfo.daysRemaining !== null ? (detail.retiredInfo.daysRemaining > 0 ? `${detail.retiredInfo.daysRemaining} Days Remaining` : "Likely Deleted") : "—"}</span></p>
+            </div>
+          </div>
+        )}
       </div>
 
-      <div>
+      <div className="md:col-span-2">
         <h4 className="mb-3 text-xs font-semibold uppercase tracking-wide text-[#D4AF37]">Lifecycle</h4>
         <div>
           {detail.lifecycle.map((step, i) => (
@@ -276,22 +326,6 @@ function InventoryDetailPanel({ accountId }: { accountId: string }) {
             </div>
           ))}
         </div>
-      </div>
-
-      <div>
-        <h4 className="mb-3 text-xs font-semibold uppercase tracking-wide text-[#D4AF37]">Balance Reset History</h4>
-        {detail.balanceResetHistory.length === 0 ? (
-          <p className="text-sm text-zinc-600">No balance resets yet.</p>
-        ) : (
-          <div className="space-y-2">
-            {detail.balanceResetHistory.map((r, i) => (
-              <div key={i} className="rounded-lg border border-white/10 p-2.5 text-xs">
-                <p className="text-zinc-300">₦{r.amount.toLocaleString()} payout</p>
-                <p className="text-zinc-600">{fmtDateTime(r.processedAt)}</p>
-              </div>
-            ))}
-          </div>
-        )}
       </div>
     </div>
   );
@@ -378,8 +412,8 @@ export default function InventoryTable({ initialAccounts, initialTotalCount }: {
                   <th className="px-4 py-3 font-medium text-right">Size</th>
                   <th className="px-4 py-3 font-medium">Stage</th>
                   <th className="px-4 py-3 font-medium">Trader</th>
-                  <th className="px-4 py-3 font-medium text-right">Balance</th>
-                  <th className="px-4 py-3 font-medium text-right">Equity</th>
+                  <th className="px-4 py-3 font-medium text-right">Starting Bal.</th>
+                  <th className="px-4 py-3 font-medium text-right">Current Bal.</th>
                   <th className="px-4 py-3 font-medium">VPS</th>
                   <th className="px-4 py-3 font-medium">Created</th>
                   <th className="px-4 py-3 font-medium">Last Sync</th>
@@ -387,27 +421,37 @@ export default function InventoryTable({ initialAccounts, initialTotalCount }: {
                 </tr>
               </thead>
               <tbody>
-                {accounts.map((a) => (
-                  <>
-                    <tr key={a.id} onClick={() => setExpandedId(expandedId === a.id ? null : a.id)} className="cursor-pointer border-b border-white/5 hover:bg-white/[0.02]">
-                      <td className="px-2 py-3 text-zinc-600">{expandedId === a.id ? <ChevronDown className="h-4 w-4" strokeWidth={1.75} /> : <ChevronRight className="h-4 w-4" strokeWidth={1.75} />}</td>
-                      <td className="px-4 py-3 font-mono text-zinc-300">{a.login}</td>
-                      <td className="px-4 py-3 text-zinc-400">{a.server ?? "—"}</td>
-                      <td className="px-4 py-3 text-right font-mono text-zinc-300">{fmtMoney(a.accountSize)}</td>
-                      <td className="px-4 py-3"><span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${stageBadge(a.stage)}`}>{a.stage}</span></td>
-                      <td className="px-4 py-3 text-xs text-zinc-400">{a.assignedTraderEmail ?? "—"}</td>
-                      <td className="px-4 py-3 text-right font-mono text-zinc-300">{fmtMoney(a.balance)}</td>
-                      <td className="px-4 py-3 text-right font-mono text-zinc-300">{fmtMoney(a.equity)}</td>
-                      <td className="px-4 py-3 font-mono text-xs text-zinc-500">{a.vpsSlot ?? "—"}</td>
-                      <td className="px-4 py-3 text-xs text-zinc-500">{fmtDate(a.createdAt)}</td>
-                      <td className="px-4 py-3 text-xs text-zinc-500">{timeAgo(a.lastSync)}</td>
-                      <td className="px-2 py-3"><ActionsMenu account={a} onUpdated={() => fetchAccounts(search, filter, page)} /></td>
-                    </tr>
-                    {expandedId === a.id && (
-                      <tr key={`${a.id}-detail`}><td colSpan={12} className="p-0"><InventoryDetailPanel accountId={a.id} /></td></tr>
-                    )}
-                  </>
-                ))}
+                {accounts.map((a) => {
+                  const vBadge = vpsBadge(a.vpsStatus);
+                  return (
+                    <>
+                      <tr key={a.id} onClick={() => setExpandedId(expandedId === a.id ? null : a.id)} className="cursor-pointer border-b border-white/5 hover:bg-white/[0.02]">
+                        <td className="px-2 py-3 text-zinc-600">{expandedId === a.id ? <ChevronDown className="h-4 w-4" strokeWidth={1.75} /> : <ChevronRight className="h-4 w-4" strokeWidth={1.75} />}</td>
+                        <td className="px-4 py-3 font-mono text-zinc-300">{a.login}</td>
+                        <td className="px-4 py-3 text-zinc-400">{a.server ?? "—"}</td>
+                        <td className="px-4 py-3 text-right font-mono text-zinc-300">{fmtMoney(a.accountSize)}</td>
+                        <td className="px-4 py-3"><span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${stageBadge(a.stage)}`}>{a.stage}</span></td>
+                        <td className="px-4 py-3 text-xs text-zinc-400">
+                          {a.assignedTraderName ? (
+                            <>
+                              <p className="text-zinc-300">{a.assignedTraderName}</p>
+                              <p className="text-zinc-600">{a.assignedPhaseLabel}</p>
+                            </>
+                          ) : "Available"}
+                        </td>
+                        <td className="px-4 py-3 text-right font-mono text-zinc-300">{fmtMoney(a.startingBalance)}</td>
+                        <td className="px-4 py-3 text-right font-mono text-zinc-300">{a.currentBalance !== null ? fmtMoney(a.currentBalance) : "—"}</td>
+                        <td className="px-4 py-3"><span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${vBadge.className}`}>{vBadge.label}</span></td>
+                        <td className="px-4 py-3 text-xs text-zinc-500">{fmtDate(a.createdAt)}</td>
+                        <td className="px-4 py-3 text-xs text-zinc-500">{lastSyncLabel(a)}</td>
+                        <td className="px-2 py-3"><ActionsMenu account={a} onUpdated={() => fetchAccounts(search, filter, page)} /></td>
+                      </tr>
+                      {expandedId === a.id && (
+                        <tr key={`${a.id}-detail`}><td colSpan={12} className="p-0"><InventoryDetailPanel accountId={a.id} /></td></tr>
+                      )}
+                    </>
+                  );
+                })}
               </tbody>
             </table>
           </div>
