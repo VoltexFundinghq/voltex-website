@@ -5,7 +5,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
-import { User, Menu, X, LogOut } from "lucide-react";
+import { User, Menu, X, LogOut, LayoutDashboard } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { createClient } from "@/lib/supabase/client";
 import { signOutAction } from "@/lib/auth/actions";
@@ -23,6 +23,7 @@ export default function Navbar() {
   const [open, setOpen] = useState(false);
   const [loggedIn, setLoggedIn] = useState(false);
   const [displayHandle, setDisplayHandle] = useState<string | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
     const supabase = createClient();
@@ -32,12 +33,14 @@ export default function Navbar() {
       if (!user) {
         setLoggedIn(false);
         setDisplayHandle(null);
+        setIsAdmin(false);
         return;
       }
       setLoggedIn(true);
-      const profileQuery = await supabase.from("users").select("username").eq("id", user.id).single();
-      const profile = profileQuery.data as { username: string | null } | null;
+      const profileQuery = await supabase.from("users").select("username, is_admin").eq("id", user.id).single();
+      const profile = profileQuery.data as { username: string | null; is_admin: boolean } | null;
       setDisplayHandle(profile?.username || user.email?.split("@")[0] || "Trader");
+      setIsAdmin(profile?.is_admin ?? false);
     }
 
     loadUser();
@@ -45,19 +48,23 @@ export default function Navbar() {
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session?.user) {
         setLoggedIn(true);
-        supabase.from("users").select("username").eq("id", session.user.id).single()
+        supabase.from("users").select("username, is_admin").eq("id", session.user.id).single()
           .then((result) => {
-            const data = result.data as { username: string | null } | null;
+            const data = result.data as { username: string | null; is_admin: boolean } | null;
             setDisplayHandle(data?.username || session.user.email?.split("@")[0] || "Trader");
+            setIsAdmin(data?.is_admin ?? false);
           });
       } else {
         setLoggedIn(false);
         setDisplayHandle(null);
+        setIsAdmin(false);
       }
     });
 
     return () => listener.subscription.unsubscribe();
   }, []);
+
+  const dashboardHref = isAdmin ? "/admin" : "/dashboard";
 
   return (
     <header className="w-full pt-2">
@@ -82,6 +89,10 @@ export default function Navbar() {
           <div className="hidden items-center gap-5 lg:flex">
             {loggedIn ? (
               <>
+                <Link href={dashboardHref} className="flex items-center gap-2 rounded-xl px-4 py-2 text-lg font-medium text-white transition-all duration-300 hover:bg-[#D4AF37]/10 hover:text-[#D4AF37]">
+                  <LayoutDashboard size={20} />
+                  Dashboard
+                </Link>
                 <span className="max-w-[160px] truncate text-base text-zinc-400">{displayHandle}</span>
                 <form action={signOutAction}>
                   <button type="submit" className="flex items-center gap-2 rounded-xl px-4 py-2 text-lg font-medium text-white transition-all duration-300 hover:bg-[#D4AF37]/10 hover:text-[#D4AF37]">
@@ -121,6 +132,10 @@ export default function Navbar() {
                 <div className="mt-3 flex flex-col gap-3 border-t border-[#D4AF37]/10 pt-4">
                   {loggedIn ? (
                     <>
+                      <Link href={dashboardHref} onClick={() => setOpen(false)} className="flex items-center justify-center gap-2 rounded-xl border border-[#D4AF37]/30 px-4 py-3 text-base font-medium text-white">
+                        <LayoutDashboard size={18} />
+                        Dashboard
+                      </Link>
                       <p className="truncate px-1 text-sm text-zinc-400">{displayHandle}</p>
                       <form action={signOutAction}>
                         <button type="submit" className="flex w-full items-center justify-center gap-2 rounded-xl border border-[#D4AF37]/30 px-4 py-3 text-base font-medium text-white">
