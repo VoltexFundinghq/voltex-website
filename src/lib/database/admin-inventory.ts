@@ -18,6 +18,7 @@ export interface InventoryRow {
   id: string;
   login: string;
   server: string | null;
+  paLabel: string | null;
   accountSize: number;
   stage: InventoryStage;
   assignedTraderName: string | null;
@@ -45,7 +46,7 @@ export interface LifecycleStep {
 }
 
 export interface InventoryDetail {
-  account: { login: string; investorPasswordMasked: string; server: string | null; accountSize: number; stage: InventoryStage; startingBalance: number; currentBalance: number | null; currentEquity: number | null; createdAt: string };
+  account: { login: string; investorPasswordMasked: string; server: string | null; paLabel: string | null; accountSize: number; stage: InventoryStage; startingBalance: number; currentBalance: number | null; currentEquity: number | null; createdAt: string };
   assignment: { traderName: string | null; traderEmail: string | null; currentPhase: number | null; purchaseReference: string | null; assignedDate: string | null } | null;
   vps: { status: VpsStatus; slot: string | null; lastHeartbeat: string | null };
   lifecycle: LifecycleStep[];
@@ -93,8 +94,8 @@ function determineStage(accountStatus: string, linkedPhase: number | null): Inve
 
 function determineVpsStatus(accountStatus: string, linked: any | null, vpsSlot: string | null): VpsStatus {
   if (accountStatus !== "assigned") return "not_assigned";
-  if (!linked) return "error"; // assigned but no active challenge found — genuine data inconsistency
-  if (!vpsSlot) return "assigned"; // linked, but no poller has picked it up yet
+  if (!linked) return "error";
+  if (!vpsSlot) return "assigned";
   const isOffline = !linked.last_known_check_at || (Date.now() - new Date(linked.last_known_check_at).getTime()) > OFFLINE_SYNC_SECONDS * 1000;
   return isOffline ? "offline" : "monitoring";
 }
@@ -172,7 +173,7 @@ export async function getInventoryPage(params: {
 
   if (search && search.trim()) {
     const term = search.trim();
-    query = query.or(`login.ilike.%${term}%,server.ilike.%${term}%,id.eq.${term}`);
+    query = query.or(`login.ilike.%${term}%,server.ilike.%${term}%,pa_label.ilike.%${term}%,id.eq.${term}`);
   }
 
   const allMatchingQuery = await query.order("created_at", { ascending: false });
@@ -204,6 +205,7 @@ export async function getInventoryPage(params: {
       id: r.id,
       login: r.login,
       server: r.server,
+      paLabel: r.pa_label ?? null,
       accountSize: r.account_size,
       stage,
       assignedTraderName: user?.full_name ?? user?.email ?? null,
@@ -341,6 +343,7 @@ export async function getInventoryDetail(accountId: string): Promise<InventoryDe
       login: account.login,
       investorPasswordMasked: maskPassword(account.investor_password),
       server: account.server,
+      paLabel: account.pa_label ?? null,
       accountSize: account.account_size,
       stage,
       startingBalance: account.account_size,
