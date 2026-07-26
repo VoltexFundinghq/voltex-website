@@ -40,6 +40,11 @@ function Badge({ count }: { count: number }) {
   );
 }
 
+// Single shared class string ensures every nav item — Dashboard
+// included — renders at the exact same font size and brightness,
+// with no accidental inconsistency between grouped and ungrouped items.
+const NAV_ITEM_CLASS = "flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-zinc-200 transition-colors hover:bg-white/5 hover:text-white";
+
 export default function AdminSidebar({ navGroups }: { navGroups: NavGroup[] }) {
   const [isOpen, setIsOpen] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
@@ -68,11 +73,11 @@ export default function AdminSidebar({ navGroups }: { navGroups: NavGroup[] }) {
             priority
             className="h-20 w-auto brightness-[1.3] drop-shadow-[0_0_18px_rgba(212,175,55,0.5)]"
           />
-          <p className="mt-2 text-sm text-zinc-500">Operations Centre</p>
+          <p className="mt-2 text-sm text-zinc-400">Operations Centre</p>
         </Link>
         <button
           onClick={() => setIsOpen(false)}
-          className="rounded-lg p-1.5 text-zinc-500 hover:bg-white/5 hover:text-white lg:hidden"
+          className="rounded-lg p-1.5 text-zinc-400 hover:bg-white/5 hover:text-white lg:hidden"
         >
           <X className="h-5 w-5" strokeWidth={1.75} />
         </button>
@@ -86,12 +91,7 @@ export default function AdminSidebar({ navGroups }: { navGroups: NavGroup[] }) {
                 {group.items.map((item) => {
                   const Icon = ICON_MAP[item.iconName];
                   return (
-                    <Link
-                      key={item.href}
-                      href={item.href}
-                      onClick={() => setIsOpen(false)}
-                      className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-zinc-400 transition-colors hover:bg-white/5 hover:text-white"
-                    >
+                    <Link key={item.href} href={item.href} onClick={() => setIsOpen(false)} className={NAV_ITEM_CLASS}>
                       <Icon className="h-4 w-4 flex-shrink-0" strokeWidth={1.75} />
                       <span className="truncate">{item.label}</span>
                       {typeof item.badge === "number" && <Badge count={item.badge} />}
@@ -110,9 +110,9 @@ export default function AdminSidebar({ navGroups }: { navGroups: NavGroup[] }) {
                 onClick={() => toggleGroup(group.label!)}
                 className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left transition-colors hover:bg-white/5"
               >
-                <span className="text-[10px] font-semibold uppercase tracking-[0.15em] text-zinc-500">{group.label}</span>
+                <span className="text-[10px] font-semibold uppercase tracking-[0.15em] text-zinc-400">{group.label}</span>
                 <ChevronDown
-                  className={`h-3.5 w-3.5 text-zinc-600 transition-transform duration-200 ${isExpanded ? "rotate-180" : ""}`}
+                  className={`h-3.5 w-3.5 text-zinc-500 transition-transform duration-200 ${isExpanded ? "rotate-180" : ""}`}
                   strokeWidth={2}
                 />
               </button>
@@ -121,12 +121,7 @@ export default function AdminSidebar({ navGroups }: { navGroups: NavGroup[] }) {
                   {group.items.map((item) => {
                     const Icon = ICON_MAP[item.iconName];
                     return (
-                      <Link
-                        key={item.href}
-                        href={item.href}
-                        onClick={() => setIsOpen(false)}
-                        className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-zinc-400 transition-colors hover:bg-white/5 hover:text-white"
-                      >
+                      <Link key={item.href} href={item.href} onClick={() => setIsOpen(false)} className={NAV_ITEM_CLASS}>
                         <Icon className="h-4 w-4 flex-shrink-0" strokeWidth={1.75} />
                         <span className="truncate">{item.label}</span>
                         {typeof item.badge === "number" && <Badge count={item.badge} />}
@@ -144,7 +139,7 @@ export default function AdminSidebar({ navGroups }: { navGroups: NavGroup[] }) {
         <form action={signOutAction}>
           <button
             type="submit"
-            className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-zinc-400 transition-colors hover:bg-red-400/10 hover:text-red-400"
+            className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-zinc-200 transition-colors hover:bg-red-400/10 hover:text-red-400"
           >
             <LogOut className="h-4 w-4 flex-shrink-0" strokeWidth={1.75} />
             Sign Out
