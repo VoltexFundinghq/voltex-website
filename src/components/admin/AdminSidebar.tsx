@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import Image from "next/image";
+import { usePathname } from "next/navigation";
 import {
   Menu, X, ChevronDown, LogOut,
   LayoutDashboard, Users, Receipt, Activity, CheckCircle2, XCircle, Trophy,
@@ -40,14 +41,23 @@ function Badge({ count }: { count: number }) {
   );
 }
 
-// Single shared class string ensures every nav item — Dashboard
-// included — renders at the exact same font size and brightness,
-// with no accidental inconsistency between grouped and ungrouped items.
-const NAV_ITEM_CLASS = "flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-zinc-200 transition-colors hover:bg-white/5 hover:text-white";
+const BASE_ITEM_CLASS = "flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors";
+const INACTIVE_CLASS = "text-zinc-200 hover:bg-white/5 hover:text-white";
+const ACTIVE_CLASS = "bg-[#D4AF37]/10 text-[#D4AF37] font-medium";
 
 export default function AdminSidebar({ navGroups }: { navGroups: NavGroup[] }) {
+  const pathname = usePathname();
   const [isOpen, setIsOpen] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+
+  // Auto-expand whichever group contains the current page, every time
+  // the route changes — so the active section is never left collapsed.
+  useEffect(() => {
+    const activeGroup = navGroups.find((g) => g.label && g.items.some((item) => pathname === item.href));
+    if (activeGroup?.label) {
+      setExpandedGroups((prev) => new Set(prev).add(activeGroup.label!));
+    }
+  }, [pathname, navGroups]);
 
   function toggleGroup(label: string) {
     setExpandedGroups((prev) => {
@@ -90,8 +100,9 @@ export default function AdminSidebar({ navGroups }: { navGroups: NavGroup[] }) {
               <div key={i} className="mb-3 space-y-0.5">
                 {group.items.map((item) => {
                   const Icon = ICON_MAP[item.iconName];
+                  const isActive = pathname === item.href;
                   return (
-                    <Link key={item.href} href={item.href} onClick={() => setIsOpen(false)} className={NAV_ITEM_CLASS}>
+                    <Link key={item.href} href={item.href} onClick={() => setIsOpen(false)} className={`${BASE_ITEM_CLASS} ${isActive ? ACTIVE_CLASS : INACTIVE_CLASS}`}>
                       <Icon className="h-4 w-4 flex-shrink-0" strokeWidth={1.75} />
                       <span className="truncate">{item.label}</span>
                       {typeof item.badge === "number" && <Badge count={item.badge} />}
@@ -103,6 +114,7 @@ export default function AdminSidebar({ navGroups }: { navGroups: NavGroup[] }) {
           }
 
           const isExpanded = expandedGroups.has(group.label);
+          const groupHasActive = group.items.some((item) => pathname === item.href);
 
           return (
             <div key={i}>
@@ -110,7 +122,7 @@ export default function AdminSidebar({ navGroups }: { navGroups: NavGroup[] }) {
                 onClick={() => toggleGroup(group.label!)}
                 className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left transition-colors hover:bg-white/5"
               >
-                <span className="text-[10px] font-semibold uppercase tracking-[0.15em] text-zinc-400">{group.label}</span>
+                <span className={`text-[10px] font-semibold uppercase tracking-[0.15em] ${groupHasActive ? "text-[#D4AF37]" : "text-zinc-400"}`}>{group.label}</span>
                 <ChevronDown
                   className={`h-3.5 w-3.5 text-zinc-500 transition-transform duration-200 ${isExpanded ? "rotate-180" : ""}`}
                   strokeWidth={2}
@@ -120,8 +132,9 @@ export default function AdminSidebar({ navGroups }: { navGroups: NavGroup[] }) {
                 <div className="mt-0.5 space-y-0.5 pb-2">
                   {group.items.map((item) => {
                     const Icon = ICON_MAP[item.iconName];
+                    const isActive = pathname === item.href;
                     return (
-                      <Link key={item.href} href={item.href} onClick={() => setIsOpen(false)} className={NAV_ITEM_CLASS}>
+                      <Link key={item.href} href={item.href} onClick={() => setIsOpen(false)} className={`${BASE_ITEM_CLASS} ${isActive ? ACTIVE_CLASS : INACTIVE_CLASS}`}>
                         <Icon className="h-4 w-4 flex-shrink-0" strokeWidth={1.75} />
                         <span className="truncate">{item.label}</span>
                         {typeof item.badge === "number" && <Badge count={item.badge} />}
