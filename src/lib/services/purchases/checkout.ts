@@ -3,6 +3,7 @@
 import crypto from "crypto";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { createServiceClient } from "@/lib/supabase/service";
 import { getProfile } from "@/lib/database/users";
 import { getChallengeById, nairaToKobo } from "@/lib/config/challenges";
 import { createPurchase, updatePurchaseStatus } from "@/lib/database/purchases";
@@ -15,6 +16,20 @@ export async function createCheckoutForUser(params: {
   phone: string | null;
   challengeId: string;
 }): Promise<string> {
+  // Real platform-mode enforcement — checked at the single earliest
+  // point both purchase paths (direct buy + post-signup buy) go
+  // through, before any purchase record or PalmPay order exists.
+  const serviceClient = createServiceClient();
+  const modeQuery = await serviceClient.from("platform_settings").select("value").eq("key", "platform_mode").single();
+  const platformMode = (modeQuery.data as { value: string } | null)?.value ?? "live";
+
+  if (platformMode === "maintenance") {
+    throw new Error("Voltex Funding is currently in maintenance mode. New purchases are temporarily unavailable — please check back shortly.");
+  }
+  if (platformMode === "read_only") {
+    throw new Error("The platform is currently in read-only mode. New purchases are temporarily disabled.");
+  }
+
   const challenge = getChallengeById(params.challengeId);
   if (!challenge || challenge.status !== "active" || challenge.challenge_fee === null) {
     throw new Error("This challenge is not currently available for purchase.");

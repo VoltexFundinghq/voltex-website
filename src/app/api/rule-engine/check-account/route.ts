@@ -25,6 +25,20 @@ type ExtendedChallenge = UserChallenge & {
   weekend_flagged_tickets?: string[];
 };
 
+async function getRuleToggles(serviceClient: ReturnType<typeof createServiceClient>) {
+  const query = await serviceClient
+    .from("platform_settings")
+    .select("key, value")
+    .in("key", ["weekend_holding_rule_enabled", "news_trading_rule_enabled", "copy_trading_detection_enabled"]);
+  const rows = ((query.data ?? []) as unknown as { key: string; value: string }[]);
+  const map = new Map(rows.map((r) => [r.key, r.value]));
+  return {
+    weekendEnabled: map.get("weekend_holding_rule_enabled") !== "false",
+    newsEnabled: map.get("news_trading_rule_enabled") !== "false",
+    copyTradingEnabled: map.get("copy_trading_detection_enabled") !== "false",
+  };
+}
+
 async function getTraderEmail(serviceClient: ReturnType<typeof createServiceClient>, userId: string): Promise<string | null> {
   const query = await serviceClient.from("users").select("email").eq("id", userId).single();
   const data = query.data as { email: string } | null;
@@ -73,13 +87,6 @@ async function handlePassed(
     return;
   }
 
-  // Phase 2 pass — retire the OLD evaluation account via the same
-  // proven RPC used for failures. This correctly flips its status to
-  // 'resetting', clears assigned_to, and stamps last_known_activity_at
-  // — the exact field the 21-day Exness deletion countdown depends
-  // on. Previously this was a raw status update that skipped all of
-  // that, silently leaving passed-to-funded accounts stuck at
-  // 'assigned' forever with no real countdown ever starting.
   const { error: completeError } = await (serviceClient.rpc as any)("complete_user_challenge", {
     p_user_challenge_id: challenge.id,
     p_outcome: "passed",
@@ -235,6 +242,7 @@ export async function POST(request: Request) {
   }
 
   const serviceClient = createServiceClient();
+  const ruleToggles = await getRuleToggles(serviceClient);
 
   const accountQuery = await serviceClient
     .from("trading_accounts")
@@ -288,13 +296,15 @@ export async function POST(request: Request) {
     }
   }
 
-  try {
-    await runCorrelationPass(serviceClient);
-  } catch (err) {
-    console.error("Correlation check failed (non-fatal, continuing):", err);
+  if (ruleToggles.copyTradingEnabled) {
+    try {
+      await runCorrelationPass(serviceClient);
+    } catch (err) {
+      console.error("Correlation check failed (non-fatal, continuing):", err);
+    }
   }
 
-  if (Array.isArray(closedTrades) && closedTrades.length > 0) {
+  if (ruleToggles.newsEnabled && Array.isArray(closedTrades) && closedTrades.length > 0) {
     const challengeStartDateForNews = new Date(challenge.start_date ?? challenge.purchase_date);
     const relevantTrades = closedTrades
       .map((t: any) => ({
@@ -344,7 +354,7 @@ export async function POST(request: Request) {
     }
   }
 
-  if (Array.isArray(openPositions) && openPositions.length > 0) {
+  if (ruleToggles.weekendEnabled && Array.isArray(openPositions) && openPositions.length > 0) {
     const weekendResult = checkWeekendHolding({
       openPositions: openPositions.map((p: any) => ({
         ticket: String(p.ticket),
