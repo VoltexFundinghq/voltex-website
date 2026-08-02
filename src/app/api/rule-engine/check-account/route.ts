@@ -74,8 +74,8 @@ async function handlePassed(
     await notifyTrader(
       serviceClient,
       challenge.user_id,
-      "Phase 1 Passed!",
-      `You've passed Phase 1 with ${currentProfitPercent.toFixed(2)}% profit. We'll reset your balance shortly to begin Phase 2 — keep the same login open.`
+      "Phase 1 Passed! 🎉",
+      `Amazing work — you've passed Phase 1 with ${currentProfitPercent.toFixed(2)}% profit! We're resetting your balance shortly to kick off Phase 2 — keep that login open, you're on a roll.`
     );
     for (const adminId of await getAdminUserIds()) {
       await createNotification({
@@ -153,8 +153,8 @@ async function handlePassed(
   }
   await createNotification({
     userId: challenge.user_id,
-    title: "Welcome to Funded Stage!",
-    message: `Congratulations — you've completed your evaluation. Your new funded account details have been emailed to you.`,
+    title: "Welcome to Funded Stage! 🏆",
+    message: `Congratulations — genuinely. You did the hard part. Your new funded account details have been emailed to you.`,
   });
 
   for (const adminId of await getAdminUserIds()) {
@@ -338,8 +338,8 @@ export async function POST(request: Request) {
           await notifyTrader(
             serviceClient,
             challenge.user_id,
-            "Challenge Failed — News Trading Violation",
-            `Your challenge was failed: ${newsViolations[0].message}`
+            "Challenge Ended — News Trading Rule",
+            `Your challenge has come to an end: ${newsViolations[0].message} This rule exists to keep evaluation conditions fair for everyone. We know it's tough news — you're welcome to start a new challenge whenever you're ready to go again.`
           );
           for (const adminId of await getAdminUserIds()) {
             await createNotification({
@@ -375,8 +375,8 @@ export async function POST(request: Request) {
         await notifyTrader(
           serviceClient,
           challenge.user_id,
-          "Challenge Failed — Weekend Holding Violation",
-          `Your account was failed for holding a position open across the weekend on ${weekendResult.violatingSymbols.join(", ")} — this is your 2nd occurrence of this rule.`
+          "Challenge Ended — Weekend Holding",
+          `Your challenge has come to an end — this is your 2nd weekend-holding violation, on ${weekendResult.violatingSymbols.join(", ")}. We know that's disappointing, but you're welcome to start a fresh challenge whenever you're ready.`
         );
         for (const adminId of await getAdminUserIds()) {
           await createNotification({
@@ -396,8 +396,8 @@ export async function POST(request: Request) {
         await notifyTrader(
           serviceClient,
           challenge.user_id,
-          "Weekend Holding Warning",
-          `You held a position open across the weekend on ${weekendResult.violatingSymbols.join(", ")}. This is a warning — one more occurrence will breach your challenge. BTC/USD and ETH/USD are exempt from this rule.`
+          "Heads Up — Weekend Holding Warning",
+          `You held a position open across the weekend on ${weekendResult.violatingSymbols.join(", ")}. This is your first warning — one more occurrence will breach your challenge. Remember, BTC/USD and ETH/USD are exempt if you'd rather hold over the weekend.`
         );
         for (const adminId of await getAdminUserIds()) {
           await createNotification({
@@ -442,8 +442,8 @@ export async function POST(request: Request) {
       await notifyTrader(
         serviceClient,
         challenge.user_id,
-        "You're Eligible for a Payout!",
-        `Your account has reached ${currentProfitPercent.toFixed(2)}% profit — you're now eligible to request a payout. Please contact support to request yours.`
+        "You're Eligible for a Payout! 💰",
+        `Incredible — your account just hit ${currentProfitPercent.toFixed(2)}% profit, which means you're eligible for a payout! Reach out to our support team whenever you're ready to claim it.`
       );
       for (const adminId of await getAdminUserIds()) {
         await createNotification({
@@ -485,15 +485,15 @@ export async function POST(request: Request) {
       await notifyTrader(
         serviceClient,
         challenge.user_id,
-        "Payout Processed — Continue Trading",
-        `Your payout has been processed and your account balance reset to ${numericBalance.toLocaleString()}. Keep trading toward your next payout — good luck!`
+        "Payout Processed — Keep Trading! 🚀",
+        `Your payout has landed, and your balance is freshly reset to ${numericBalance.toLocaleString()}. Keep trading with the same discipline that got you here — we can't wait to see your next one.`
       );
     } else {
       await notifyTrader(
         serviceClient,
         challenge.user_id,
-        "Welcome to Phase 2!",
-        `Your account balance has been reset to ${numericBalance.toLocaleString()}. Phase 2 evaluation begins now — good luck!`
+        "Welcome to Phase 2! 🔥",
+        `Your balance is reset to ${numericBalance.toLocaleString()} and Phase 2 officially begins now. You've already proven you can do this — let's keep the momentum going!`
       );
     }
 
@@ -535,8 +535,8 @@ export async function POST(request: Request) {
       await notifyTrader(
         serviceClient,
         challenge.user_id,
-        "Drawdown Warning",
-        `Your account is currently ${floatingResult.currentDrawdownPercent.toFixed(1)}% down from your peak balance. Your challenge fails if you lose ${floatingResult.fixedAllowedLossAmount.toLocaleString()} total from your peak — please manage your risk carefully.`
+        "Quick Heads Up — Drawdown Warning",
+        `Your account is currently ${floatingResult.currentDrawdownPercent.toFixed(1)}% down from its peak balance. Remember, your challenge fails if the loss from peak reaches ${floatingResult.fixedAllowedLossAmount.toLocaleString()} total — a good moment to tighten up your risk management.`
       );
     }
   }
@@ -549,8 +549,8 @@ export async function POST(request: Request) {
     await notifyTrader(
       serviceClient,
       challenge.user_id,
-      "Challenge Failed — Drawdown Breach",
-      `Your account breached the drawdown limit. Equity ${equity} fell below the floor of ${floatingResult.drawdownFloor.toFixed(2)}.`
+      "Challenge Ended — Drawdown Breach",
+      `Your account reached its drawdown limit, and per our rules, this challenge has come to an end. Equity fell to ${equity}, below the floor of ${floatingResult.drawdownFloor.toFixed(2)}. We know this isn't the outcome you wanted — you're welcome to start a new challenge whenever you're ready to go again.`
     );
     for (const adminId of await getAdminUserIds()) {
       await createNotification({
@@ -595,8 +595,8 @@ export async function POST(request: Request) {
         await notifyTrader(
           serviceClient,
           challenge.user_id,
-          "Inactivity Warning",
-          `You haven't placed a trade in ${Math.floor(daysSinceLastActivity)} days. Your challenge will be breached if you reach 5 days of inactivity — place a trade soon to stay active.`
+          "We Miss You — Inactivity Warning",
+          `We noticed you haven't placed a trade in ${Math.floor(daysSinceLastActivity)} days. Just a friendly reminder — 5 days of inactivity will breach your challenge, so hop back in whenever you're ready.`
         );
       }
     }
@@ -617,8 +617,8 @@ export async function POST(request: Request) {
       await notifyTrader(
         serviceClient,
         challenge.user_id,
-        "Challenge Failed",
-        `Your challenge was failed: ${result.violations[result.violations.length - 1]?.message ?? result.breachedRule}`
+        "Challenge Ended",
+        `Your challenge has come to an end: ${result.violations[result.violations.length - 1]?.message ?? result.breachedRule} We know it stings, but every serious trader hits setbacks — you're welcome to start fresh whenever you're ready.`
       );
       for (const adminId of await getAdminUserIds()) {
         await createNotification({
@@ -644,7 +644,7 @@ export async function POST(request: Request) {
           serviceClient,
           challenge.user_id,
           "Second Warning — Minimum Hold Time",
-          `This is your second warning for closing a trade too quickly. If you close 2 more trades in under 3 minutes, your challenge will be breached.`
+          `Quick heads up — this is your second warning for closing trades too quickly. One more pair of fast closes (under 3 minutes) and your challenge will be breached, so take a breath between entries.`
         );
       }
 
