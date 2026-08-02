@@ -430,26 +430,20 @@ export async function POST(request: Request) {
       .select();
 
     if (claimed && claimed.length > 0) {
-      const rawProfitAmount = numericBalance - account.account_size;
-
-      await (serviceClient.from("payout_requests") as any).insert({
-        user_id: challenge.user_id,
-        user_challenge_id: challenge.id,
-        amount: rawProfitAmount,
-        status: "pending",
+      // Deliberately in-app only — no email, and no payout_requests
+      // row created here. The trader now has to actively request
+      // their payout from the dashboard once that real button exists
+      // (it should stay disabled unless payout_eligible is true).
+      await createNotification({
+        userId: challenge.user_id,
+        title: "You've Hit Your Profit Target! 💰",
+        message: `Your account just reached ${currentProfitPercent.toFixed(2)}% profit — head to your Payouts page whenever you're ready to request yours.`,
       });
-
-      await notifyTrader(
-        serviceClient,
-        challenge.user_id,
-        "You're Eligible for a Payout! 💰",
-        `Incredible — your account just hit ${currentProfitPercent.toFixed(2)}% profit, which means you're eligible for a payout! Reach out to our support team whenever you're ready to claim it.`
-      );
       for (const adminId of await getAdminUserIds()) {
         await createNotification({
           userId: adminId,
           title: "Trader Payout-Eligible",
-          message: `Account ${accountLogin} reached ${currentProfitPercent.toFixed(2)}% profit on Funded stage — a pending payout request has been recorded for your review.`,
+          message: `Account ${accountLogin} reached ${currentProfitPercent.toFixed(2)}% profit on Funded stage and can now request a payout from their dashboard.`,
         });
       }
     }
