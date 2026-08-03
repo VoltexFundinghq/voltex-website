@@ -36,6 +36,13 @@ export interface TimelineStep {
   failed?: boolean;
 }
 
+export interface ConsentRecord {
+  onFile: boolean;
+  agreedAt: string | null;
+  ipAddress: string | null;
+  deviceSummary: string | null;
+}
+
 export interface PurchaseDetail {
   id: string;
   customer: { name: string | null; email: string; username: string | null; country: string | null };
@@ -48,6 +55,7 @@ export interface PurchaseDetail {
     vpsSlot: string | null;
     credentialsSent: boolean;
   };
+  consent: ConsentRecord;
   orderAgeMinutes: number;
   cancelled: boolean;
   timeline: TimelineStep[];
@@ -230,8 +238,24 @@ export async function getPurchaseDetail(purchaseId: string): Promise<PurchaseDet
     vpsSlot = (slotQuery.data as { slot_label: string } | null)?.slot_label ?? null;
   }
 
+  // Real consent record, matched by the shared orderId — both
+  // payment_reference and purchase_reference are set to the same
+  // value at checkout time.
+  let consent: ConsentRecord = { onFile: false, agreedAt: null, ipAddress: null, deviceSummary: null };
+  if (purchase.payment_reference) {
+    const consentQuery = await serviceClient
+      .from("terms_acceptances")
+      .select("agreed_at, ip_address, device_summary")
+      .eq("purchase_reference", purchase.payment_reference)
+      .maybeSingle();
+    const consentRow = consentQuery.data as { agreed_at: string; ip_address: string | null; device_summary: string | null } | null;
+    if (consentRow) {
+      consent = { onFile: true, agreedAt: consentRow.agreed_at, ipAddress: consentRow.ip_address, deviceSummary: consentRow.device_summary };
+    }
+  }
+
   const { status: provisionStatus } = deriveProvisionStatus(purchase, matched);
-  const credentialsSent = !!mt5Login; // our real code sends credentials synchronously at the moment of assignment — no separately tracked timestamp exists
+  const credentialsSent = !!mt5Login;
   const orderAgeMinutes = Math.round((Date.now() - new Date(purchase.created_at).getTime()) / 60000);
   const cancelled = purchase.payment_status === "failed";
 
@@ -244,10 +268,6 @@ export async function getPurchaseDetail(purchaseId: string): Promise<PurchaseDet
   } else {
     timeline.push({ label: "Payment Verified", timestamp: purchase.payment_confirmed_at, reached: purchase.payment_status === "completed" });
     timeline.push({ label: "Challenge Record Created", timestamp: matched?.created_at ?? null, reached: !!matched });
-    // Inventory Reserved and Account Assigned share the same real
-    // timestamp in our system — allocation is atomic, not two
-    // separately-tracked moments — but shown as two conceptual steps
-    // as requested.
     timeline.push({ label: "Inventory Reserved", timestamp: accountAssignedAt, reached: !!mt5Login });
     timeline.push({ label: "Account Assigned", timestamp: accountAssignedAt, reached: !!mt5Login });
     timeline.push({ label: "Credentials Delivered", timestamp: accountAssignedAt, reached: credentialsSent });
@@ -265,6 +285,7 @@ export async function getPurchaseDetail(purchaseId: string): Promise<PurchaseDet
       vpsSlot,
       credentialsSent,
     },
+    consent,
     orderAgeMinutes,
     cancelled,
     timeline,

@@ -26,12 +26,20 @@ interface TimelineStep {
   failed?: boolean;
 }
 
+interface ConsentRecord {
+  onFile: boolean;
+  agreedAt: string | null;
+  ipAddress: string | null;
+  deviceSummary: string | null;
+}
+
 interface PurchaseDetail {
   id: string;
   customer: { name: string | null; email: string; username: string | null; country: string | null };
   purchase: { challenge_size: string; price_paid: number; created_at: string };
   payment: { gateway: string; reference: string | null; status: string };
   provision: { status: string; mt5Login: string | null; server: string | null; vpsSlot: string | null; credentialsSent: boolean };
+  consent: ConsentRecord;
   orderAgeMinutes: number;
   cancelled: boolean;
   timeline: TimelineStep[];
@@ -212,6 +220,19 @@ function PurchaseDetailPanel({ purchaseId }: { purchaseId: string }) {
             <p className="text-zinc-400">VPS: <span className="text-zinc-200">{detail.provision.vpsSlot ?? "—"}</span></p>
             <p className="text-zinc-400">Credentials: <span className={detail.provision.credentialsSent ? "text-emerald-400" : "text-zinc-200"}>{detail.provision.credentialsSent ? "Sent" : "Not Sent"}</span></p>
           </div>
+        </div>
+        <div>
+          <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-[#D4AF37]">Consent & Dispute Evidence</h4>
+          {detail.consent.onFile ? (
+            <div className="space-y-1 text-sm">
+              <p className="text-zinc-400">Status: <span className="rounded-full bg-emerald-400/10 px-2 py-0.5 text-xs font-medium text-emerald-400">On File</span></p>
+              <p className="text-zinc-400">Agreed At: <span className="text-zinc-200">{fmtDateTime(detail.consent.agreedAt)}</span></p>
+              <p className="text-zinc-400">IP Address: <span className="font-mono text-xs text-zinc-200">{detail.consent.ipAddress ?? "—"}</span></p>
+              <p className="text-zinc-400">Device: <span className="text-zinc-200">{detail.consent.deviceSummary ?? "—"}</span></p>
+            </div>
+          ) : (
+            <p className="text-sm text-zinc-600">No consent record on file — this purchase predates the consent-tracking system.</p>
+          )}
         </div>
       </div>
 
