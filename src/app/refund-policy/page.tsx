@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { XCircle, CheckCircle2 } from "lucide-react";
+import { XCircle, CheckCircle2, ShieldAlert } from "lucide-react";
 import Navbar from "@/components/layout/Navbar";
 import Footer from "@/components/layout/Footer";
 import { Button } from "@/components/ui/button";
@@ -17,7 +17,7 @@ export default function RefundPolicyPage() {
           <div className="mx-auto max-w-2xl text-center">
             <p className="text-xs font-semibold uppercase tracking-[0.35em] text-[#D4AF37]">LEGAL</p>
             <h1 className="mt-4 text-3xl font-extrabold leading-tight text-white sm:text-4xl md:text-5xl">Refund Policy</h1>
-            <p className="mx-auto mt-4 text-sm text-zinc-500">Last updated: [Insert Date]</p>
+            <p className="mx-auto mt-4 text-sm text-zinc-500">Last updated: August 2026</p>
           </div>
           <div className="mx-auto mt-8 h-px w-40 bg-gradient-to-r from-transparent via-[#D4AF37] to-transparent" />
         </div>
@@ -27,9 +27,9 @@ export default function RefundPolicyPage() {
         <div className="relative mx-auto max-w-[800px] space-y-8 px-5 sm:px-8 sm:space-y-10">
 
           <div>
-            <h2 className="text-base font-extrabold text-white sm:text-lg">Our Policy</h2>
+            <h2 className="text-base font-extrabold text-white sm:text-lg">1. Instant Delivery & Non-Refundable Nature</h2>
             <p className="mt-3 text-sm leading-7 text-zinc-400">
-              When you purchase a Voltex Funding challenge, your account is provisioned and delivered instantly, giving you immediate access to trade. Because the account, trading conditions, and platform access are activated the moment your payment is confirmed, challenge fees are non-refundable once an account has been issued.
+              When you purchase a Voltex Funding challenge, your account is provisioned and delivered instantly, giving you immediate access to trade. Because the account, trading conditions, and platform access are activated the moment your payment is confirmed, challenge fees are strictly non-refundable once an account has been issued.
             </p>
             <p className="mt-3 text-sm leading-7 text-zinc-400">
               This policy exists to keep our pricing fair and sustainable for all traders — instant delivery means we cannot "undo" an activated evaluation the way a physical product return works.
@@ -39,10 +39,10 @@ export default function RefundPolicyPage() {
           <div className="rounded-2xl border border-[#D4AF37]/20 bg-white/[0.02] p-6 backdrop-blur-xl sm:p-7">
             <div className="flex items-center gap-3">
               <XCircle className="h-5 w-5 flex-shrink-0 text-[#D4AF37]" />
-              <h3 className="text-base font-bold text-white">Non-Refundable Circumstances</h3>
+              <h3 className="text-base font-bold text-white">2. Non-Refundable Circumstances</h3>
             </div>
             <ul className="mt-4 space-y-2.5 pl-1">
-              {["Change of mind after an account has been issued", "Failing Phase 1 or Phase 2 of your evaluation", "Breaching a trading rule, including drawdown or activity requirements", "Dissatisfaction with trading performance or results"].map((item) => (
+              {["Change of mind or personal circumstances after an account has been issued", "Failing Phase 1 or Phase 2 of your evaluation", "Breaching any trading rule, including the maximum drawdown limit", "Dissatisfaction with trading performance, market conditions, or personal results"].map((item) => (
                 <li key={item} className="flex items-start gap-2.5 text-sm leading-6 text-zinc-300">
                   <span className="mt-1.5 h-1 w-1 flex-shrink-0 rounded-full bg-[#D4AF37]" />
                   {item}
@@ -53,12 +53,25 @@ export default function RefundPolicyPage() {
 
           <div className="rounded-2xl border border-[#D4AF37]/20 bg-white/[0.02] p-6 backdrop-blur-xl sm:p-7">
             <div className="flex items-center gap-3">
-              <CheckCircle2 className="h-5 w-5 flex-shrink-0 text-[#D4AF37]" />
-              <h3 className="text-base font-bold text-white">Exceptions We Will Review</h3>
+              <ShieldAlert className="h-5 w-5 flex-shrink-0 text-[#D4AF37]" />
+              <h3 className="text-base font-bold text-white">3. Payment Disputes & Chargeback Policy</h3>
             </div>
-            <p className="mt-3 text-sm leading-6 text-zinc-400">We will review refund requests on a case-by-case basis for genuine billing issues, including:</p>
+            <p className="mt-3 text-sm leading-7 text-zinc-400">
+              Voltex Funding maintains a zero-tolerance policy for friendly fraud and chargeback abuse. If you initiate a chargeback or bank dispute for a successfully delivered service, your access will be instantly terminated, all virtual data deleted, and you will be permanently blacklisted from our platform.
+            </p>
+            <p className="mt-3 text-sm leading-7 text-zinc-400">
+              At signup and at the moment of purchase, we record your IP address, device and browser details, and a timestamped record of your explicit agreement to these terms. This information serves as proof of service delivery and informed consent to our payment gateway, PalmPay, and to relevant banking institutions in the event of a dispute.
+            </p>
+          </div>
+
+          <div className="rounded-2xl border border-[#D4AF37]/20 bg-white/[0.02] p-6 backdrop-blur-xl sm:p-7">
+            <div className="flex items-center gap-3">
+              <CheckCircle2 className="h-5 w-5 flex-shrink-0 text-[#D4AF37]" />
+              <h3 className="text-base font-bold text-white">4. Exceptions We Will Review</h3>
+            </div>
+            <p className="mt-3 text-sm leading-6 text-zinc-400">We will review refund requests on a case-by-case basis strictly for genuine billing errors, provided the account has not been traded:</p>
             <ul className="mt-4 space-y-2.5 pl-1">
-              {["A duplicate or accidental double charge for the same challenge", "An unauthorized charge on your payment method", "A confirmed technical error that prevented your account from being delivered"].map((item) => (
+              {["A duplicate or accidental double charge for the exact same challenge", "Confirmed technical system errors that permanently prevent account delivery"].map((item) => (
                 <li key={item} className="flex items-start gap-2.5 text-sm leading-6 text-zinc-300">
                   <span className="mt-1.5 h-1 w-1 flex-shrink-0 rounded-full bg-[#D4AF37]" />
                   {item}
