@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Percent, Target, ShieldAlert, MonitorSmartphone, Clock } from "lucide-react";
+import { Percent, Target, ShieldAlert, MonitorSmartphone, Clock, AlertCircle } from "lucide-react";
 import Navbar from "@/components/layout/Navbar";
 import Footer from "@/components/layout/Footer";
 import { Button } from "@/components/ui/button";
@@ -56,18 +56,42 @@ function ChallengeCard({ challenge }: { challenge: ChallengeProduct }) {
           Coming Soon
         </button>
       ) : (
-        <form action={buyAction}>
-          <Button type="submit" className="mt-6 w-full bg-[#D4AF37] py-3 text-base font-semibold text-black hover:bg-[#F5D573]">Buy Challenge</Button>
+        <form action={buyAction} className="mt-6">
+          <label className="flex items-start gap-2.5 text-left text-xs leading-snug text-zinc-400">
+            <input
+              type="checkbox"
+              name="agreedToTerms"
+              required
+              className="mt-0.5 h-4 w-4 flex-shrink-0 rounded border-white/20 bg-white/5 accent-[#D4AF37]"
+            />
+            <span>
+              I agree to the{" "}
+              <Link href="/refund-policy" target="_blank" className="text-[#D4AF37] underline hover:text-[#F5D573]">
+                Terms of Service
+              </Link>{" "}
+              and understand that evaluation fees are strictly non-refundable once my account is delivered.
+            </span>
+          </label>
+          <Button type="submit" className="mt-4 w-full bg-[#D4AF37] py-3 text-base font-semibold text-black hover:bg-[#F5D573]">Buy Challenge</Button>
         </form>
       )}
     </div>
   );
 }
 
-export default function ChallengesPage() {
+export default async function ChallengesPage({ searchParams }: { searchParams: Promise<{ consent?: string }> }) {
+  const params = await searchParams;
+
   return (
     <main className="min-h-screen bg-black text-white">
       <Navbar />
+
+      {params.consent === "required" && (
+        <div className="mx-auto mt-4 flex max-w-2xl items-center gap-2 rounded-xl border border-red-400/30 bg-red-400/5 px-4 py-3 text-sm text-red-400">
+          <AlertCircle className="h-4 w-4 flex-shrink-0" />
+          You must agree to the Terms of Service before purchasing a challenge.
+        </div>
+      )}
 
       <section className="relative overflow-hidden bg-black pb-8 pt-12 sm:pt-16">
         <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,rgba(212,175,55,.1),transparent_55%)]" />

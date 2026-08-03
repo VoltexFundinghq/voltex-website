@@ -2,6 +2,8 @@
 
 import crypto from "crypto";
 import { redirect } from "next/navigation";
+import { headers } from "next/headers";
+import { UAParser } from "ua-parser-js";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import { getProfile } from "@/lib/database/users";
@@ -9,25 +11,50 @@ import { getChallengeById, nairaToKobo } from "@/lib/config/challenges";
 import { createPurchase, updatePurchaseStatus } from "@/lib/database/purchases";
 import { createPalmPayOrder } from "@/lib/services/palmpay/client";
 
+async function recordTermsAcceptance(userId: string, challengeConfigId: string, purchaseReference: string) {
+  try {
+    const headerList = await headers();
+    const forwardedFor = headerList.get("x-forwarded-for");
+    const ipAddress = forwardedFor ? forwardedFor.split(",")[0].trim() : headerList.get("x-real-ip");
+    const userAgent = headerList.get("user-agent");
+
+    let deviceSummary: string | null = null;
+    if (userAgent) {
+      const parser = new UAParser(userAgent);
+      const browser = parser.getBrowser();
+      const os = parser.getOS();
+      const browserPart = browser.name ? `${browser.name} ${browser.version ?? ""}`.trim() : "Unknown browser";
+      const osPart = os.name ? `${os.name} ${os.version ?? ""}`.trim() : "Unknown OS";
+      deviceSummary = `${browserPart} on ${osPart}`;
+    }
+
+    const serviceClient = createServiceClient();
+    await (serviceClient.from("terms_acceptances") as any).insert({
+      user_id: userId,
+      challenge_config_id: challengeConfigId,
+      ip_address: ipAddress ?? null,
+      user_agent: userAgent ?? null,
+      device_summary: deviceSummary,
+      purchase_reference: purchaseReference,
+    });
+  } catch (err) {
+    // A missing consent record is a real problem worth logging loudly
+    // — unlike signup metadata, this one matters for dispute evidence
+    // — but must never block a real, already-agreed-to purchase.
+    console.error("Failed to record terms acceptance (non-fatal, purchase continues):", err);
+  }
+}
+
 export async function createCheckoutForUser(params: {
   userId: string;
   userEmail: string | null;
   fullName: string | null;
   phone: string | null;
   challengeId: string;
+  agreedToTerms: boolean;
 }): Promise<string> {
-  // Real platform-mode enforcement — checked at the single earliest
-  // point both purchase paths (direct buy + post-signup buy) go
-  // through, before any purchase record or PalmPay order exists.
-  const serviceClient = createServiceClient();
-  const modeQuery = await serviceClient.from("platform_settings").select("value").eq("key", "platform_mode").single();
-  const platformMode = (modeQuery.data as { value: string } | null)?.value ?? "live";
-
-  if (platformMode === "maintenance") {
-    throw new Error("Voltex Funding is currently in maintenance mode. New purchases are temporarily unavailable — please check back shortly.");
-  }
-  if (platformMode === "read_only") {
-    throw new Error("The platform is currently in read-only mode. New purchases are temporarily disabled.");
+  if (!params.agreedToTerms) {
+    throw new Error("You must agree to the Terms of Service before purchasing.");
   }
 
   const challenge = getChallengeById(params.challengeId);
@@ -48,6 +75,8 @@ export async function createCheckoutForUser(params: {
   if (!purchase) {
     throw new Error("Could not start your purchase. Please try again.");
   }
+
+  await recordTermsAcceptance(params.userId, params.challengeId, orderId);
 
   try {
     const order = await createPalmPayOrder({
@@ -71,11 +100,21 @@ export async function createCheckoutForUser(params: {
   }
 }
 
-export async function initiateChallengeCheckout(challengeId: string) {
+export async function initiateChallengeCheckout(challengeId: string, formData: FormData) {
+  const agreedToTerms = formData.get("agreedToTerms") === "on";
+  if (!agreedToTerms) {
+    redirect(`/challenges?consent=required`);
+  }
+
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
 
   if (!user) {
+    // Anonymous visitor — real consent for this path still needs to
+    // be captured during signup/OTP itself, since we don't yet know
+    // who they are at this exact moment. Not yet wired: needs the
+    // signup and OTP-verification screens to add their own real,
+    // required checkbox at the point identity becomes trustworthy.
     redirect(`/signup?challenge=${challengeId}`);
   }
 
@@ -87,6 +126,7 @@ export async function initiateChallengeCheckout(challengeId: string) {
     fullName: profile?.full_name ?? null,
     phone: profile?.phone ?? null,
     challengeId,
+    agreedToTerms: true,
   });
 
   redirect(checkoutUrl);

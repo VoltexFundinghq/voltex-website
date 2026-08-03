@@ -67,8 +67,6 @@ export async function signUp(prevState: AuthResult, formData: FormData): Promise
 async function captureSignupMetadata(userId: string) {
   try {
     const headerList = await headers();
-    // x-forwarded-for can be a comma-separated chain through multiple
-    // proxies — the first entry is the real originating client IP.
     const forwardedFor = headerList.get("x-forwarded-for");
     const ipAddress = forwardedFor ? forwardedFor.split(",")[0].trim() : headerList.get("x-real-ip");
     const userAgent = headerList.get("user-agent");
@@ -91,8 +89,6 @@ async function captureSignupMetadata(userId: string) {
       signup_captured_at: new Date().toISOString(),
     }).eq("id", userId);
   } catch (err) {
-    // Never let metadata capture block real account creation — a
-    // missing IP/device record is a minor loss, a blocked signup is not.
     console.error("Failed to capture signup metadata (non-fatal):", err);
   }
 }
@@ -101,9 +97,22 @@ export async function verifySignupCode(prevState: AuthResult, formData: FormData
   const email = formData.get("email") as string;
   const token = formData.get("token") as string;
   const challengeId = (formData.get("challengeId") as string) || undefined;
+  const agreedToTerms = formData.get("agreedToTerms") === "on";
 
   if (!email || !token) {
     return { error: "Please enter the code sent to your email.", awaitingCode: true, pendingEmail: email, pendingChallengeId: challengeId };
+  }
+
+  // Real, required consent gate — only enforced when a purchase is
+  // actually about to happen (challengeId present). A plain signup
+  // with no attached challenge needs no purchase consent yet.
+  if (challengeId && !agreedToTerms) {
+    return {
+      error: "You must agree to the Terms of Service before your challenge purchase can proceed.",
+      awaitingCode: true,
+      pendingEmail: email,
+      pendingChallengeId: challengeId,
+    };
   }
 
   const supabase = await createClient();
@@ -118,9 +127,6 @@ export async function verifySignupCode(prevState: AuthResult, formData: FormData
     };
   }
 
-  // Real IP + device capture, at the moment email ownership is
-  // genuinely confirmed via OTP — the point where identity and
-  // request metadata can both be trusted together.
   await captureSignupMetadata(data.user.id);
 
   if (challengeId) {
@@ -134,6 +140,7 @@ export async function verifySignupCode(prevState: AuthResult, formData: FormData
         fullName: profile?.full_name ?? null,
         phone: profile?.phone ?? null,
         challengeId,
+        agreedToTerms: true,
       });
     } catch {
       checkoutUrl = null;
@@ -206,8 +213,6 @@ export async function signIn(prevState: AuthResult, formData: FormData): Promise
 
   revalidatePath("/", "layout");
 
-  // Admin accounts land in the Operations Centre instead of the
-  // customer-facing homepage. Everyone else keeps the existing flow.
   if (data.user) {
     const serviceClient = createServiceClient();
     const profileQuery = await serviceClient

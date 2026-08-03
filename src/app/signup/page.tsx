@@ -57,6 +57,24 @@ function CodeEntryForm({ email, challengeId }: { email: string; challengeId?: st
           placeholder="Enter code"
         />
 
+        {challengeId && (
+          <label className="flex items-start gap-2.5 text-left text-xs leading-snug text-zinc-400">
+            <input
+              type="checkbox"
+              name="agreedToTerms"
+              required
+              className="mt-0.5 h-4 w-4 flex-shrink-0 rounded border-white/20 bg-white/5 accent-[#D4AF37]"
+            />
+            <span>
+              I agree to the{" "}
+              <Link href="/refund-policy" target="_blank" className="text-[#D4AF37] underline hover:text-[#F5D573]">
+                Terms of Service
+              </Link>{" "}
+              and understand that evaluation fees are strictly non-refundable once my account is delivered.
+            </span>
+          </label>
+        )}
+
         <Button type="submit" disabled={isPending} className="w-full bg-[#D4AF37] py-3 text-base font-semibold text-black hover:bg-[#F5D573] disabled:opacity-60">
           {isPending ? "Verifying..." : "Verify & Continue"}
         </Button>
