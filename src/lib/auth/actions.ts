@@ -4,6 +4,8 @@ import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
+import { headers } from "next/headers";
+import { UAParser } from "ua-parser-js";
 import { createCheckoutForUser } from "@/lib/services/purchases/checkout";
 import { getProfile } from "@/lib/database/users";
 
@@ -62,6 +64,39 @@ export async function signUp(prevState: AuthResult, formData: FormData): Promise
   };
 }
 
+async function captureSignupMetadata(userId: string) {
+  try {
+    const headerList = await headers();
+    // x-forwarded-for can be a comma-separated chain through multiple
+    // proxies — the first entry is the real originating client IP.
+    const forwardedFor = headerList.get("x-forwarded-for");
+    const ipAddress = forwardedFor ? forwardedFor.split(",")[0].trim() : headerList.get("x-real-ip");
+    const userAgent = headerList.get("user-agent");
+
+    let deviceSummary: string | null = null;
+    if (userAgent) {
+      const parser = new UAParser(userAgent);
+      const browser = parser.getBrowser();
+      const os = parser.getOS();
+      const browserPart = browser.name ? `${browser.name} ${browser.version ?? ""}`.trim() : "Unknown browser";
+      const osPart = os.name ? `${os.name} ${os.version ?? ""}`.trim() : "Unknown OS";
+      deviceSummary = `${browserPart} on ${osPart}`;
+    }
+
+    const serviceClient = createServiceClient();
+    await (serviceClient.from("users") as any).update({
+      signup_ip_address: ipAddress ?? null,
+      signup_user_agent: userAgent ?? null,
+      signup_device_summary: deviceSummary,
+      signup_captured_at: new Date().toISOString(),
+    }).eq("id", userId);
+  } catch (err) {
+    // Never let metadata capture block real account creation — a
+    // missing IP/device record is a minor loss, a blocked signup is not.
+    console.error("Failed to capture signup metadata (non-fatal):", err);
+  }
+}
+
 export async function verifySignupCode(prevState: AuthResult, formData: FormData): Promise<AuthResult> {
   const email = formData.get("email") as string;
   const token = formData.get("token") as string;
@@ -82,6 +117,11 @@ export async function verifySignupCode(prevState: AuthResult, formData: FormData
       pendingChallengeId: challengeId,
     };
   }
+
+  // Real IP + device capture, at the moment email ownership is
+  // genuinely confirmed via OTP — the point where identity and
+  // request metadata can both be trusted together.
+  await captureSignupMetadata(data.user.id);
 
   if (challengeId) {
     const profile = await getProfile();
