@@ -2,7 +2,7 @@ import { getPaymentStats, getPaymentsPage, getGatewayBreakdown, getPaymentAnalyt
 import AdminHeader from "@/components/admin/AdminHeader";
 import PaymentsTable from "@/components/admin/PaymentsTable";
 import RevenueChartCard from "@/components/admin/RevenueChartCard";
-import { Receipt, DollarSign, Clock, CheckCircle2, XCircle, Undo2, Download } from "lucide-react";
+import { Receipt, DollarSign, Clock, CheckCircle2, XCircle, Undo2, Download, FileText } from "lucide-react";
 
 function StatCard({ label, value, icon: Icon, tone }: { label: string; value: string; icon: any; tone?: "success" | "danger" | "gold" }) {
   const toneClass = tone === "success" ? "text-emerald-400" : tone === "danger" ? "text-red-400" : tone === "gold" ? "text-[#D4AF37]" : "text-white";
@@ -64,7 +64,10 @@ export default async function PaymentsPage() {
           <StatCard label="Failed Payment %" value={`${analytics.failedPaymentPercent}%`} icon={XCircle} tone={analytics.failedPaymentPercent > 20 ? "danger" : undefined} />
         </div>
 
-        <div className="flex justify-end">
+        <div className="flex justify-end gap-2">
+          <a href="/api/admin/payments/export-pdf" download className="flex items-center gap-1.5 rounded-lg border border-white/10 px-4 py-2 text-sm text-zinc-300 hover:bg-white/5">
+            <FileText className="h-3.5 w-3.5" /> Export PDF
+          </a>
           <a href="/api/admin/payments/export" download className="flex items-center gap-1.5 rounded-lg border border-white/10 px-4 py-2 text-sm text-zinc-300 hover:bg-white/5">
             <Download className="h-3.5 w-3.5" /> Export CSV
           </a>
