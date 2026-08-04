@@ -1,83 +1,59 @@
-import { createServiceClient } from "@/lib/supabase/service";
+import { getPayoutStats, getPayoutRequestsPage, getPayoutAnalytics } from "@/lib/database/admin-payout-requests";
 import AdminHeader from "@/components/admin/AdminHeader";
+import PayoutRequestsTable from "@/components/admin/PayoutRequestsTable";
+import { Clock, CheckCircle2, XCircle, Banknote, DollarSign, Calendar, Download } from "lucide-react";
 
-interface PayoutRow {
-  id: string;
-  user_id: string;
-  amount: number;
-  status: string;
-  requested_at: string;
-  processed_at: string | null;
-}
-
-async function getPayoutRequests(): Promise<{ payouts: PayoutRow[]; emailsById: Map<string, string> }> {
-  const serviceClient = createServiceClient();
-  const payoutsQuery = await serviceClient
-    .from("payout_requests")
-    .select("id, user_id, amount, status, requested_at, processed_at")
-    .order("requested_at", { ascending: false });
-
-  const payouts = payoutsQuery.data as PayoutRow[] | null;
-  if (payoutsQuery.error || !payouts) return { payouts: [], emailsById: new Map() };
-
-  const userIds = [...new Set(payouts.map((p) => p.user_id))];
-  const usersQuery = userIds.length > 0
-    ? await serviceClient.from("users").select("id, email").in("id", userIds)
-    : { data: [] as any[] };
-
-  const emailsById = new Map((usersQuery.data as { id: string; email: string }[] ?? []).map((u) => [u.id, u.email]));
-
-  return { payouts, emailsById };
-}
-
-function statusBadge(status: string) {
-  if (status === "approved") return "bg-emerald-400/10 text-emerald-400";
-  if (status === "rejected") return "bg-red-400/10 text-red-400";
-  if (status === "completed") return "bg-[#D4AF37]/10 text-[#D4AF37]";
-  return "bg-amber-400/10 text-amber-400";
+function StatCard({ label, value, icon: Icon, tone }: { label: string; value: string; icon: any; tone?: "success" | "danger" | "gold" }) {
+  const toneClass = tone === "success" ? "text-emerald-400" : tone === "danger" ? "text-red-400" : tone === "gold" ? "text-[#D4AF37]" : "text-white";
+  return (
+    <div className="rounded-xl border border-white/10 bg-white/[0.02] p-5">
+      <div className="flex items-center justify-between">
+        <p className="text-xs uppercase tracking-wide text-zinc-500">{label}</p>
+        <Icon className="h-4 w-4 text-zinc-600" strokeWidth={1.75} />
+      </div>
+      <p className={`mt-2 text-2xl font-bold ${toneClass}`}>{value}</p>
+    </div>
+  );
 }
 
 export default async function PayoutRequestsPage() {
-  const { payouts, emailsById } = await getPayoutRequests();
+  const [stats, initial, analytics] = await Promise.all([
+    getPayoutStats(),
+    getPayoutRequestsPage({ page: 1, pageSize: 25 }),
+    getPayoutAnalytics(),
+  ]);
 
   return (
     <div>
       <AdminHeader title="Payout Requests" />
-      <div className="p-8">
-        <p className="mb-4 text-sm text-zinc-500">{payouts.length} request{payouts.length === 1 ? "" : "s"} recorded</p>
+      <div className="space-y-6 p-4 sm:p-8">
+        <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-6">
+          <StatCard label="Pending" value={String(stats.pending)} icon={Clock} tone={stats.pending > 0 ? "gold" : undefined} />
+          <StatCard label="Approved" value={String(stats.approved)} icon={CheckCircle2} tone="success" />
+          <StatCard label="Rejected" value={String(stats.rejected)} icon={XCircle} tone="danger" />
+          <StatCard label="Paid" value={String(stats.paid)} icon={Banknote} />
+          <StatCard label="Total Value" value={`₦${stats.totalValue.toLocaleString()}`} icon={DollarSign} />
+          <StatCard label="Today's Requests" value={String(stats.todaysRequests)} icon={Calendar} />
+        </div>
 
-        {payouts.length === 0 ? (
-          <div className="rounded-xl border border-white/10 bg-white/[0.02] p-12 text-center">
-            <p className="text-zinc-500">No payout requests yet.</p>
+        <PayoutRequestsTable initialPayouts={initial.payouts} initialTotalCount={initial.totalCount} />
+
+        <div className="rounded-xl border border-white/10 bg-white/[0.02] p-6">
+          <h2 className="text-lg font-semibold text-white">Analytics</h2>
+          <div className="mt-4 grid grid-cols-2 gap-4 text-sm md:grid-cols-5">
+            <div><p className="text-xs text-zinc-500">Average Payout</p><p className="mt-1 text-zinc-200">₦{analytics.averagePayout.toLocaleString()}</p></div>
+            <div><p className="text-xs text-zinc-500">Total Paid</p><p className="mt-1 text-zinc-200">₦{analytics.totalPaid.toLocaleString()}</p></div>
+            <div><p className="text-xs text-zinc-500">Largest Payout</p><p className="mt-1 text-zinc-200">₦{analytics.largestPayout.toLocaleString()}</p></div>
+            <div><p className="text-xs text-zinc-500">Pending Value</p><p className="mt-1 text-zinc-200">₦{analytics.pendingValue.toLocaleString()}</p></div>
+            <div><p className="text-xs text-zinc-500">Avg. Processing Time</p><p className="mt-1 text-zinc-200">{analytics.averageProcessingHours}h</p></div>
           </div>
-        ) : (
-          <div className="overflow-x-auto rounded-xl border border-white/10">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-white/10 bg-white/[0.03] text-left text-xs uppercase tracking-wide text-zinc-500">
-                  <th className="px-4 py-3 font-medium">Trader</th>
-                  <th className="px-4 py-3 font-medium text-right">Amount</th>
-                  <th className="px-4 py-3 font-medium">Status</th>
-                  <th className="px-4 py-3 font-medium">Requested</th>
-                  <th className="px-4 py-3 font-medium">Processed</th>
-                </tr>
-              </thead>
-              <tbody>
-                {payouts.map((p) => (
-                  <tr key={p.id} className="border-b border-white/5 hover:bg-white/[0.02]">
-                    <td className="px-4 py-3 text-zinc-300">{emailsById.get(p.user_id) ?? "unknown"}</td>
-                    <td className="px-4 py-3 text-right font-mono text-zinc-300">₦{Number(p.amount).toLocaleString()}</td>
-                    <td className="px-4 py-3">
-                      <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${statusBadge(p.status)}`}>{p.status}</span>
-                    </td>
-                    <td className="px-4 py-3 text-xs text-zinc-500">{new Date(p.requested_at).toLocaleString()}</td>
-                    <td className="px-4 py-3 text-xs text-zinc-500">{p.processed_at ? new Date(p.processed_at).toLocaleString() : "—"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+        </div>
+
+        <div className="flex justify-end">
+          <a href="/api/admin/payout-requests/export" download className="flex items-center gap-1.5 rounded-lg border border-white/10 px-4 py-2 text-sm text-zinc-300 hover:bg-white/5">
+            <Download className="h-3.5 w-3.5" /> Export CSV
+          </a>
+        </div>
       </div>
     </div>
   );
