@@ -69,6 +69,9 @@ export interface UserDetail {
     created_at: string;
     last_sign_in_at: string | null;
     kyc_status: string;
+    signupIpAddress: string | null;
+    signupDeviceSummary: string | null;
+    signupCapturedAt: string | null;
   };
   journeys: Journey[];
   alerts: Alert[];
@@ -271,7 +274,7 @@ export async function getUserDetail(userId: string): Promise<UserDetail | null> 
 
   const profileQuery = await serviceClient
     .from("users")
-    .select("id, full_name, email, username, country, phone, created_at, kyc_status")
+    .select("id, full_name, email, username, country, phone, created_at, kyc_status, signup_ip_address, signup_device_summary, signup_captured_at")
     .eq("id", userId)
     .single();
 
@@ -445,6 +448,9 @@ export async function getUserDetail(userId: string): Promise<UserDetail | null> 
       created_at: profile.created_at,
       last_sign_in_at: lastSignInAt,
       kyc_status: profile.kyc_status,
+      signupIpAddress: profile.signup_ip_address ?? null,
+      signupDeviceSummary: profile.signup_device_summary ?? null,
+      signupCapturedAt: profile.signup_captured_at ?? null,
     },
     journeys,
     alerts,

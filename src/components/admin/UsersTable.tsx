@@ -55,6 +55,9 @@ interface UserDetail {
     id: string; full_name: string | null; email: string; username: string | null;
     country: string | null; phone: string | null; created_at: string; last_sign_in_at: string | null;
     kyc_status: string;
+    signupIpAddress: string | null;
+    signupDeviceSummary: string | null;
+    signupCapturedAt: string | null;
   };
   journeys: Journey[];
   alerts: Alert[];
@@ -288,6 +291,19 @@ function UserDetailPanel({ userId, onProvisioned }: { userId: string; onProvisio
               <p className="text-zinc-400">Registered: <span className="text-zinc-200">{fmtDate(detail.profile.created_at)}</span></p>
               <p className="text-zinc-400">Last Login: <span className="text-zinc-200">{fmtDateTime(detail.profile.last_sign_in_at)}</span></p>
               <p className="font-mono text-xs text-zinc-600">ID: {detail.profile.id}</p>
+
+              <div className="mt-4 border-t border-white/10 pt-4">
+                <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-[#D4AF37]">Signup Evidence</h4>
+                {detail.profile.signupCapturedAt ? (
+                  <div className="space-y-1.5">
+                    <p className="text-zinc-400">Captured At: <span className="text-zinc-200">{fmtDateTime(detail.profile.signupCapturedAt)}</span></p>
+                    <p className="text-zinc-400">IP Address: <span className="font-mono text-xs text-zinc-200">{detail.profile.signupIpAddress ?? "—"}</span></p>
+                    <p className="text-zinc-400">Device: <span className="text-zinc-200">{detail.profile.signupDeviceSummary ?? "—"}</span></p>
+                  </div>
+                ) : (
+                  <p className="text-zinc-600">No signup metadata on file — this account predates IP/device capture.</p>
+                )}
+              </div>
             </div>
             <div>
               <h4 className="mb-3 text-xs font-semibold uppercase tracking-wide text-[#D4AF37]">Admin Actions</h4>
