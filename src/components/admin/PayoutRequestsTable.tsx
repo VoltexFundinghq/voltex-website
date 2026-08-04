@@ -137,7 +137,7 @@ function DetailPanel({ payoutId, onUpdated }: { payoutId: string; onUpdated: () 
               {detail.status === "approved" && (
                 <button onClick={handleMarkPaid} disabled={busy} className="flex items-center gap-1 rounded-lg bg-[#D4AF37]/10 px-3 py-1.5 text-xs font-medium text-[#D4AF37] hover:bg-[#D4AF37]/20"><Banknote className="h-3.5 w-3.5" /> Mark Paid</button>
               )}
-              <button disabled className="cursor-not-allowed rounded-lg border border-white/10 px-3 py-1.5 text-xs text-zinc-600">Download Receipt (soon)</button>
+              <a href={`/api/admin/payout-requests/${payoutId}/receipt`} download className="rounded-lg border border-white/10 px-3 py-1.5 text-xs text-zinc-300 hover:bg-white/5">Download Receipt</a>
             </div>
           </div>
         </div>
