@@ -103,9 +103,6 @@ export async function verifySignupCode(prevState: AuthResult, formData: FormData
     return { error: "Please enter the code sent to your email.", awaitingCode: true, pendingEmail: email, pendingChallengeId: challengeId };
   }
 
-  // Real, required consent gate — only enforced when a purchase is
-  // actually about to happen (challengeId present). A plain signup
-  // with no attached challenge needs no purchase consent yet.
   if (challengeId && !agreedToTerms) {
     return {
       error: "You must agree to the Terms of Service before your challenge purchase can proceed.",
@@ -211,23 +208,31 @@ export async function signIn(prevState: AuthResult, formData: FormData): Promise
 
   if (error) return { error: "Invalid login credentials." };
 
-  revalidatePath("/", "layout");
-
+  // Admin accounts land in the Operations Centre instead of the
+  // customer-facing homepage. Everyone else keeps the existing flow.
+  // Suspended admins are blocked and signed back out immediately,
+  // even though their password was genuinely correct.
   if (data.user) {
     const serviceClient = createServiceClient();
     const profileQuery = await serviceClient
       .from("users")
-      .select("is_admin")
+      .select("is_admin, is_suspended")
       .eq("id", data.user.id)
       .single();
 
-    const profile = profileQuery.data as { is_admin: boolean } | null;
+    const profile = profileQuery.data as { is_admin: boolean; is_suspended: boolean } | null;
 
     if (profile?.is_admin) {
+      if (profile.is_suspended) {
+        await supabase.auth.signOut();
+        return { error: "Your admin account has been suspended." };
+      }
+      revalidatePath("/", "layout");
       redirect("/admin");
     }
   }
 
+  revalidatePath("/", "layout");
   redirect("/");
 }
 

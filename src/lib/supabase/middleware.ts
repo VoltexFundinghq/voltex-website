@@ -1,17 +1,8 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-/**
- * Routes that require a logged-in user. The dashboard layout also
- * enforces this itself via requireUser() — this is a second,
- * earlier layer that can redirect before any rendering begins.
- */
 const PROTECTED_ROUTES: string[] = ["/dashboard"];
 
-// Real route-to-module mapping for admin WRITE-action (API)
-// enforcement. Anything NOT listed here falls through to the
-// fail-closed default below — genuinely unmapped paths require
-// Super Admin, never silently allowed.
 const API_ROUTE_MODULE_MAP: { prefix: string; module: string }[] = [
   { prefix: "/api/admin/users", module: "Traders" },
   { prefix: "/api/admin/purchases", module: "Traders" },
@@ -34,10 +25,6 @@ const API_ROUTE_MODULE_MAP: { prefix: string; module: string }[] = [
   { prefix: "/api/admin/support-tickets", module: "Support" },
 ];
 
-// Real PAGE-to-module mapping for READ (page-view) enforcement.
-// Ordered most-specific-first — "/admin" itself is checked via exact
-// match only, never startsWith, so it can't accidentally swallow
-// every other admin path.
 const PAGE_MODULE_MAP: { prefix: string; module: string }[] = [
   { prefix: "/admin/users", module: "Traders" },
   { prefix: "/admin/purchases", module: "Traders" },
@@ -53,24 +40,9 @@ const PAGE_MODULE_MAP: { prefix: string; module: string }[] = [
   { prefix: "/admin/system/settings", module: "Settings" },
 ];
 
-// Always Super Admin only, regardless of any stored module
-// permission — hard-coded given how severe these two specific
-// capabilities are (managing other admins; permanently deleting real
-// account data). Covers both API routes and real page views.
 const ALWAYS_SUPER_ADMIN_ONLY = ["/api/admin/admins", "/api/admin/delete-test-data", "/admin/system/admins"];
 const LEVEL_RANK: Record<string, number> = { no_access: 0, read: 1, write: 2, full: 3 };
 
-/**
- * Refreshes the Supabase auth session on every matching request.
- * Also enforces real, per-module admin permissions:
- *  - On /api/admin/* requests, blocks the WRITE action outright.
- *  - On /admin/* page views, REWRITES (not redirects) to
- *    /admin/access-denied — the URL bar stays on the page the admin
- *    actually clicked, and since /admin/access-denied is nested
- *    under the same /admin/layout.tsx, the real sidebar and header
- *    keep rendering normally; only the content area swaps.
- * Called from the root proxy.ts.
- */
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
 
@@ -112,7 +84,7 @@ export async function updateSession(request: NextRequest) {
 
     const { data: profile } = await supabase
       .from("users")
-      .select("is_admin, admin_role")
+      .select("is_admin, admin_role, is_suspended")
       .eq("id", user.id)
       .single();
 
@@ -120,6 +92,16 @@ export async function updateSession(request: NextRequest) {
       return isApiAdmin
         ? NextResponse.json({ error: "Unauthorized" }, { status: 401 })
         : NextResponse.redirect(new URL("/login", request.url));
+    }
+
+    // Real, immediate enforcement — a suspended admin is signed out
+    // and blocked on their very next request, not just at their
+    // next fresh login.
+    if (profile.is_suspended) {
+      await supabase.auth.signOut();
+      return isApiAdmin
+        ? NextResponse.json({ error: "Account suspended." }, { status: 403 })
+        : NextResponse.redirect(new URL("/login?error=Your admin account has been suspended.", request.url));
     }
 
     if (profile.admin_role !== "super_admin") {
@@ -154,9 +136,6 @@ export async function updateSession(request: NextRequest) {
           return NextResponse.json({ error: `Insufficient permission for ${matched.module}.` }, { status: 403 });
         }
       } else {
-        // Real page view — determine the module. "/admin" itself
-        // (bare dashboard) is checked by exact match; everything
-        // else by longest-matching real prefix.
         const module = path === "/admin"
           ? "Dashboard"
           : PAGE_MODULE_MAP.find((r) => path.startsWith(r.prefix))?.module;

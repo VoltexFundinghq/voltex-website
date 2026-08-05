@@ -26,15 +26,19 @@ export async function requireAdmin() {
   const supabase = await createClient();
   const profileQuery = await supabase
     .from("users")
-    .select("is_admin")
+    .select("is_admin, is_suspended")
     .eq("id", user.id)
     .single();
-
-  const profile = profileQuery.data as { is_admin: boolean } | null;
+  const profile = profileQuery.data as { is_admin: boolean; is_suspended: boolean } | null;
 
   if (!profile?.is_admin) {
     redirect("/");
   }
+  if (profile.is_suspended) {
+    await supabase.auth.signOut();
+    redirect("/login?error=Your admin account has been suspended.");
+  }
+
   return user;
 }
 

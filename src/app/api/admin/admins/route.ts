@@ -27,6 +27,7 @@ export async function POST(request: Request) {
 
   const { data: invited, error: inviteError } = await serviceClient.auth.admin.inviteUserByEmail(email, {
     data: { full_name: fullName },
+    redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL}/auth/callback?next=/reset-password`,
   });
 
   if (inviteError || !invited?.user) {
