@@ -8,11 +8,11 @@ import { NextResponse, type NextRequest } from "next/server";
  */
 const PROTECTED_ROUTES: string[] = ["/dashboard"];
 
-// Real route-to-module mapping for admin permission enforcement.
-// Anything NOT listed here falls through to the fail-closed default
-// below — genuinely unmapped paths require Super Admin, never
-// silently allowed.
-const ROUTE_MODULE_MAP: { prefix: string; module: string }[] = [
+// Real route-to-module mapping for admin WRITE-action (API)
+// enforcement. Anything NOT listed here falls through to the
+// fail-closed default below — genuinely unmapped paths require
+// Super Admin, never silently allowed.
+const API_ROUTE_MODULE_MAP: { prefix: string; module: string }[] = [
   { prefix: "/api/admin/users", module: "Traders" },
   { prefix: "/api/admin/purchases", module: "Traders" },
   { prefix: "/api/admin/active-traders", module: "Traders" },
@@ -34,22 +34,41 @@ const ROUTE_MODULE_MAP: { prefix: string; module: string }[] = [
   { prefix: "/api/admin/support-tickets", module: "Support" },
 ];
 
+// Real PAGE-to-module mapping for READ (page-view) enforcement.
+// Ordered most-specific-first — "/admin" itself is checked via exact
+// match only, never startsWith, so it can't accidentally swallow
+// every other admin path.
+const PAGE_MODULE_MAP: { prefix: string; module: string }[] = [
+  { prefix: "/admin/users", module: "Traders" },
+  { prefix: "/admin/purchases", module: "Traders" },
+  { prefix: "/admin/traders", module: "Traders" },
+  { prefix: "/admin/inventory", module: "Inventory" },
+  { prefix: "/admin/system/personal-areas", module: "Inventory" },
+  { prefix: "/admin/operations/provisioning-queue", module: "Provisioning Queue" },
+  { prefix: "/admin/operations/vps-monitoring", module: "VPS Monitoring" },
+  { prefix: "/admin/finance", module: "Finance" },
+  { prefix: "/admin/risk", module: "Risk" },
+  { prefix: "/admin/system/support", module: "Support" },
+  { prefix: "/admin/system/email-queue", module: "Settings" },
+  { prefix: "/admin/system/settings", module: "Settings" },
+];
+
 // Always Super Admin only, regardless of any stored module
 // permission — hard-coded given how severe these two specific
 // capabilities are (managing other admins; permanently deleting real
-// account data).
-const ALWAYS_SUPER_ADMIN_ONLY = ["/api/admin/admins", "/api/admin/delete-test-data"];
+// account data). Covers both API routes and real page views.
+const ALWAYS_SUPER_ADMIN_ONLY = ["/api/admin/admins", "/api/admin/delete-test-data", "/admin/system/admins"];
 const LEVEL_RANK: Record<string, number> = { no_access: 0, read: 1, write: 2, full: 3 };
 
 /**
- * Refreshes the Supabase auth session on every matching request, and
- * redirects unauthenticated users away from protected routes.
- * Also enforces real, per-module admin permissions on every
- * /api/admin/* WRITE action request. Page-level READ access is
- * handled inside each page itself (see
- * src/lib/auth/check-page-access.ts) — that keeps the sidebar/header
- * shell visible and just swaps the content, rather than redirecting
- * away to a separate screen.
+ * Refreshes the Supabase auth session on every matching request.
+ * Also enforces real, per-module admin permissions:
+ *  - On /api/admin/* requests, blocks the WRITE action outright.
+ *  - On /admin/* page views, REWRITES (not redirects) to
+ *    /admin/access-denied — the URL bar stays on the page the admin
+ *    actually clicked, and since /admin/access-denied is nested
+ *    under the same /admin/layout.tsx, the real sidebar and header
+ *    keep rendering normally; only the content area swaps.
  * Called from the root proxy.ts.
  */
 export async function updateSession(request: NextRequest) {
@@ -81,10 +100,14 @@ export async function updateSession(request: NextRequest) {
   } = await supabase.auth.getUser();
 
   const path = request.nextUrl.pathname;
+  const isApiAdmin = path.startsWith("/api/admin/");
+  const isAdminPage = path.startsWith("/admin") && path !== "/admin/access-denied";
 
-  if (path.startsWith("/api/admin/")) {
+  if (isApiAdmin || isAdminPage) {
     if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      return isApiAdmin
+        ? NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+        : NextResponse.redirect(new URL("/login", request.url));
     }
 
     const { data: profile } = await supabase
@@ -94,31 +117,69 @@ export async function updateSession(request: NextRequest) {
       .single();
 
     if (!profile?.is_admin) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      return isApiAdmin
+        ? NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+        : NextResponse.redirect(new URL("/login", request.url));
     }
 
     if (profile.admin_role !== "super_admin") {
-      if (ALWAYS_SUPER_ADMIN_ONLY.some((p) => path.startsWith(p))) {
-        return NextResponse.json({ error: "This action requires Super Admin." }, { status: 403 });
+      const isAlwaysSuperAdminOnly = ALWAYS_SUPER_ADMIN_ONLY.some((p) => path.startsWith(p));
+
+      if (isAlwaysSuperAdminOnly) {
+        if (isApiAdmin) {
+          return NextResponse.json({ error: "This action requires Super Admin." }, { status: 403 });
+        }
+        const deniedUrl = new URL("/admin/access-denied", request.url);
+        deniedUrl.searchParams.set("module", "Admins");
+        return NextResponse.rewrite(deniedUrl);
       }
 
-      const matched = ROUTE_MODULE_MAP.find((r) => path.startsWith(r.prefix));
-      if (!matched) {
-        return NextResponse.json({ error: "Access denied for this route." }, { status: 403 });
-      }
+      if (isApiAdmin) {
+        const matched = API_ROUTE_MODULE_MAP.find((r) => path.startsWith(r.prefix));
+        if (!matched) {
+          return NextResponse.json({ error: "Access denied for this route." }, { status: 403 });
+        }
 
-      const { data: permission } = await supabase
-        .from("admin_permissions")
-        .select("permission_level")
-        .eq("admin_user_id", user.id)
-        .eq("module", matched.module)
-        .maybeSingle();
+        const { data: permission } = await supabase
+          .from("admin_permissions")
+          .select("permission_level")
+          .eq("admin_user_id", user.id)
+          .eq("module", matched.module)
+          .maybeSingle();
 
-      const currentRank = LEVEL_RANK[permission?.permission_level ?? "no_access"] ?? 0;
-      const requiredRank = request.method === "GET" ? LEVEL_RANK.read : LEVEL_RANK.write;
+        const currentRank = LEVEL_RANK[permission?.permission_level ?? "no_access"] ?? 0;
+        const requiredRank = request.method === "GET" ? LEVEL_RANK.read : LEVEL_RANK.write;
 
-      if (currentRank < requiredRank) {
-        return NextResponse.json({ error: `Insufficient permission for ${matched.module}.` }, { status: 403 });
+        if (currentRank < requiredRank) {
+          return NextResponse.json({ error: `Insufficient permission for ${matched.module}.` }, { status: 403 });
+        }
+      } else {
+        // Real page view — determine the module. "/admin" itself
+        // (bare dashboard) is checked by exact match; everything
+        // else by longest-matching real prefix.
+        const module = path === "/admin"
+          ? "Dashboard"
+          : PAGE_MODULE_MAP.find((r) => path.startsWith(r.prefix))?.module;
+
+        if (!module) {
+          const deniedUrl = new URL("/admin/access-denied", request.url);
+          return NextResponse.rewrite(deniedUrl);
+        }
+
+        const { data: permission } = await supabase
+          .from("admin_permissions")
+          .select("permission_level")
+          .eq("admin_user_id", user.id)
+          .eq("module", module)
+          .maybeSingle();
+
+        const currentRank = LEVEL_RANK[permission?.permission_level ?? "no_access"] ?? 0;
+
+        if (currentRank < LEVEL_RANK.read) {
+          const deniedUrl = new URL("/admin/access-denied", request.url);
+          deniedUrl.searchParams.set("module", module);
+          return NextResponse.rewrite(deniedUrl);
+        }
       }
     }
   }
