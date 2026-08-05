@@ -1,6 +1,8 @@
 import { getUserSummaryStats, getUsersPage } from "@/lib/database/admin-users";
 import AdminHeader from "@/components/admin/AdminHeader";
 import UsersTable from "@/components/admin/UsersTable";
+import AccessDeniedPanel from "@/components/admin/AccessDeniedPanel";
+import { hasModuleAccess } from "@/lib/auth/check-page-access";
 import { Users2, Activity, Ban, Trophy, Receipt, DollarSign } from "lucide-react";
 
 function StatCard({ label, value, icon: Icon, tone }: { label: string; value: string; icon: any; tone?: "success" | "danger" | "gold" }) {
@@ -17,6 +19,17 @@ function StatCard({ label, value, icon: Icon, tone }: { label: string; value: st
 }
 
 export default async function UsersPage() {
+  const hasAccess = await hasModuleAccess("Traders");
+
+  if (!hasAccess) {
+    return (
+      <div>
+        <AdminHeader title="Users" />
+        <AccessDeniedPanel module="Traders" />
+      </div>
+    );
+  }
+
   const [stats, initial] = await Promise.all([
     getUserSummaryStats(),
     getUsersPage({ page: 1, pageSize: 20 }),
