@@ -1,6 +1,6 @@
 import { createServiceClient } from "@/lib/supabase/service";
 
-export const PERMISSION_MODULES = ["Dashboard", "Traders", "Inventory", "Provisioning Queue", "VPS Monitoring", "Risk", "Finance", "Settings"] as const;
+export const PERMISSION_MODULES = ["Dashboard", "Traders", "Inventory", "Provisioning Queue", "VPS Monitoring", "Risk", "Finance", "Support", "Settings"] as const;
 
 export interface AdminStats {
   totalAdmins: number;

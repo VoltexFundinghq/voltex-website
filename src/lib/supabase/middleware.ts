@@ -31,6 +31,7 @@ const ROUTE_MODULE_MAP: { prefix: string; module: string }[] = [
   { prefix: "/api/admin/payout-requests", module: "Finance" },
   { prefix: "/api/admin/settings", module: "Settings" },
   { prefix: "/api/admin/email-queue", module: "Settings" },
+  { prefix: "/api/admin/support-tickets", module: "Support" },
 ];
 
 // Always Super Admin only, regardless of any stored module
