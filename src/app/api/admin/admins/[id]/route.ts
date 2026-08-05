@@ -23,19 +23,22 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
 
   const serviceClient = createServiceClient();
 
-  // Delete FIRST, log AFTER — logging a "Deleted" event before the
-  // deletion is confirmed is backwards, and previously meant a
-  // logging failure (e.g. a duplicate unique-constraint hit from a
-  // retried click) could crash the whole route before the real
-  // deletion ever ran.
-  const { error } = await serviceClient.auth.admin.deleteUser(id);
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  try {
+    const { error } = await serviceClient.auth.admin.deleteUser(id);
+    if (error) {
+      console.error("deleteUser returned an error object:", error);
+      return NextResponse.json({ error: error.message, details: JSON.stringify(error) }, { status: 500 });
+    }
+  } catch (thrownErr: any) {
+    // This is the real, previously-hidden case — deleteUser() threw
+    // outright rather than returning a normal {error} result.
+    console.error("deleteUser THREW an exception:", thrownErr);
+    return NextResponse.json({ error: thrownErr?.message ?? "Unknown thrown error", details: JSON.stringify(thrownErr, Object.getOwnPropertyNames(thrownErr)) }, { status: 500 });
+  }
 
   try {
     await logAdminAuditEvent(serviceClient, id, "Deleted Admin", `Deleted by ${admin.email}`);
   } catch (logErr) {
-    // Never let a logging hiccup mask a real, already-successful
-    // deletion — the account is genuinely gone either way.
     console.error("Failed to log Deleted Admin audit event (non-fatal):", logErr);
   }
 
