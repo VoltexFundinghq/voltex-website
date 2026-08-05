@@ -162,7 +162,7 @@ function DetailPanel({ adminId, currentAdminId, onUpdated }: { adminId: string; 
 
         <div>
           <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-[#D4AF37]">Permissions</h4>
-          <p className="mb-2 text-[11px] text-amber-400">Preference only — not yet enforced by the system.</p>
+          <p className="mb-2 text-[11px] text-emerald-400">Genuinely enforced — every admin API request is checked against these settings. "No access" truly blocks the action.</p>
           <div className="space-y-1.5">
             {detail.permissions.map((p) => (
               <div key={p.module} className="flex items-center justify-between rounded-lg border border-white/10 px-2.5 py-1.5 text-xs">
