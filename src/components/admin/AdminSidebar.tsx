@@ -8,14 +8,14 @@ import {
   Menu, X, ChevronDown, LogOut,
   LayoutDashboard, Users, Receipt, Activity, CheckCircle2, XCircle, Trophy,
   Package, ListChecks, Server, CreditCard, TrendingUp, ArrowLeftRight, Banknote,
-  ShieldAlert, Eye, FileText, Building2, Mail, Settings, UserCog,
+  ShieldAlert, Eye, FileText, Building2, Mail, Settings, UserCog, LifeBuoy,
 } from "lucide-react";
 import { signOutAction } from "@/lib/auth/actions";
 
 const ICON_MAP = {
   LayoutDashboard, Users, Receipt, Activity, CheckCircle2, XCircle, Trophy,
   Package, ListChecks, Server, CreditCard, TrendingUp, ArrowLeftRight, Banknote,
-  ShieldAlert, Eye, FileText, Building2, Mail, Settings, UserCog,
+  ShieldAlert, Eye, FileText, Building2, Mail, Settings, UserCog, LifeBuoy,
 } as const;
 
 type IconName = keyof typeof ICON_MAP;

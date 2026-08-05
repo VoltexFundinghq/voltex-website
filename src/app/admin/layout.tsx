@@ -4,13 +4,15 @@ import AdminSidebar from "@/components/admin/AdminSidebar";
 
 async function getBadgeCounts() {
   const serviceClient = createServiceClient();
-  const [payouts, reviews] = await Promise.all([
+  const [payouts, reviews, tickets] = await Promise.all([
     serviceClient.from("payout_requests").select("id", { count: "exact", head: true }).eq("status", "pending"),
     serviceClient.from("correlation_flags").select("id", { count: "exact", head: true }).eq("status", "pending_review"),
+    serviceClient.from("support_tickets").select("id", { count: "exact", head: true }).eq("status", "open"),
   ]);
   return {
     payoutRequests: payouts.count ?? 0,
     manualReviews: reviews.count ?? 0,
+    supportTickets: tickets.count ?? 0,
   };
 }
 
@@ -64,6 +66,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
       items: [
         { label: "Personal Areas", href: "/admin/system/personal-areas", iconName: "Building2" as const },
         { label: "Email Queue", href: "/admin/system/email-queue", iconName: "Mail" as const },
+        { label: "Support", href: "/admin/system/support", iconName: "LifeBuoy" as const, badge: badges.supportTickets },
         { label: "Admins", href: "/admin/system/admins", iconName: "UserCog" as const },
         { label: "Settings", href: "/admin/system/settings", iconName: "Settings" as const },
       ],
