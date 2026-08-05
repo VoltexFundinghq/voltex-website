@@ -45,8 +45,11 @@ const LEVEL_RANK: Record<string, number> = { no_access: 0, read: 1, write: 2, fu
  * Refreshes the Supabase auth session on every matching request, and
  * redirects unauthenticated users away from protected routes.
  * Also enforces real, per-module admin permissions on every
- * /api/admin/* request — the single, fail-closed enforcement point
- * for the whole admin panel.
+ * /api/admin/* WRITE action request. Page-level READ access is
+ * handled inside each page itself (see
+ * src/lib/auth/check-page-access.ts) — that keeps the sidebar/header
+ * shell visible and just swaps the content, rather than redirecting
+ * away to a separate screen.
  * Called from the root proxy.ts.
  */
 export async function updateSession(request: NextRequest) {
