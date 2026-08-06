@@ -62,8 +62,10 @@ async function detectCases(serviceClient: ReturnType<typeof createServiceClient>
     });
   }
 
-  // Pending KYC
-  const kycQuery = await serviceClient.from("users").select("id, email, kyc_status").eq("kyc_status", "pending");
+  // Pending KYC — explicitly excludes admins. Every new row defaults
+  // to kyc_status='pending', including admin accounts created via
+  // invite, which have no real KYC concept at all.
+  const kycQuery = await serviceClient.from("users").select("id, email, kyc_status").eq("kyc_status", "pending").eq("is_admin", false);
   for (const u of ((kycQuery.data ?? []) as unknown as any[])) {
     cases.push({
       sourceType: "kyc", sourceId: u.id, userId: u.id, category: CATEGORY_MAP.kyc,

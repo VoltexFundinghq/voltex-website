@@ -80,6 +80,7 @@ function InviteModal({ onClose, onInvited }: { onClose: () => void; onInvited: (
 function DetailPanel({ adminId, currentAdminId, onUpdated }: { adminId: string; currentAdminId: string; onUpdated: () => void }) {
   const [detail, setDetail] = useState<AdminDetail | null>(null);
   const [busy, setBusy] = useState(false);
+  const [lastError, setLastError] = useState<string | null>(null);
 
   function load() { fetch(`/api/admin/admins/${adminId}`).then((r) => r.json()).then(setDetail); }
   useEffect(() => { load(); }, [adminId]);
@@ -114,11 +115,24 @@ function DetailPanel({ adminId, currentAdminId, onUpdated }: { adminId: string; 
     if (adminId === currentAdminId) { alert("You cannot delete your own account."); return; }
     if (!confirm("Permanently delete this admin? This cannot be undone.")) return;
     setBusy(true);
+    setLastError(null);
     try {
       const res = await fetch(`/api/admin/admins/${adminId}`, { method: "DELETE" });
-      const data = await res.json();
-      if (res.ok) onUpdated(); else alert(data.error ?? "Failed to delete.");
-    } catch { alert("Failed."); }
+      const rawText = await res.text();
+      let data: any = {};
+      try { data = JSON.parse(rawText); } catch { data = { error: "Non-JSON response", raw: rawText }; }
+
+      if (res.ok) {
+        onUpdated();
+      } else {
+        // Show the REAL, complete, selectable error text directly on
+        // the page — no popup, no DevTools navigation, nothing that
+        // can get lost or trimmed.
+        setLastError(`Status: ${res.status}\n\nFull response:\n${JSON.stringify(data, null, 2)}\n\nRaw text (if JSON parse failed):\n${rawText}`);
+      }
+    } catch (err: any) {
+      setLastError(`Request itself threw before reaching the server:\n${err?.message ?? String(err)}`);
+    }
     setBusy(false);
   }
 
@@ -126,6 +140,12 @@ function DetailPanel({ adminId, currentAdminId, onUpdated }: { adminId: string; 
 
   return (
     <div className="bg-black/30 p-6">
+      {lastError && (
+        <div className="mb-4 rounded-lg border border-red-400/40 bg-red-400/5 p-4">
+          <p className="mb-2 text-xs font-semibold text-red-400">Real error — select and copy this entire block:</p>
+          <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-all rounded bg-black/50 p-3 text-[11px] text-red-300 selection:bg-red-400/30">{lastError}</pre>
+        </div>
+      )}
       <div className="grid gap-6 md:grid-cols-3">
         <div className="space-y-5">
           <div>
