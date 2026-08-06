@@ -8,6 +8,7 @@ import { headers } from "next/headers";
 import { UAParser } from "ua-parser-js";
 import { createCheckoutForUser } from "@/lib/services/purchases/checkout";
 import { getProfile } from "@/lib/database/users";
+import { getRealAdminLandingPage } from "@/lib/auth/admin-landing";
 
 export type AuthResult = {
   error: string | null;
@@ -176,39 +177,6 @@ export async function resendSignupCode(prevState: AuthResult, formData: FormData
   };
 }
 
-// Matches the real PAGE_MODULE_MAP order in middleware — the first
-// module here that the admin genuinely has read-or-higher access to
-// becomes their real post-login destination.
-const MODULE_LANDING_PAGES: { module: string; href: string }[] = [
-  { module: "Dashboard", href: "/admin" },
-  { module: "Traders", href: "/admin/users" },
-  { module: "Inventory", href: "/admin/inventory" },
-  { module: "Provisioning Queue", href: "/admin/operations/provisioning-queue" },
-  { module: "VPS Monitoring", href: "/admin/operations/vps-monitoring" },
-  { module: "Finance", href: "/admin/finance/payments" },
-  { module: "Risk", href: "/admin/risk/violations" },
-  { module: "Support", href: "/admin/system/support" },
-  { module: "Settings", href: "/admin/system/settings" },
-];
-
-async function getRealAdminLandingPage(serviceClient: ReturnType<typeof createServiceClient>, userId: string, isSuperAdmin: boolean): Promise<string> {
-  if (isSuperAdmin) return "/admin";
-
-  const permissionsQuery = await serviceClient
-    .from("admin_permissions")
-    .select("module, permission_level")
-    .eq("admin_user_id", userId)
-    .neq("permission_level", "no_access");
-
-  const granted = new Set(((permissionsQuery.data ?? []) as unknown as { module: string }[]).map((p) => p.module));
-
-  const firstAccessible = MODULE_LANDING_PAGES.find((m) => granted.has(m.module));
-  // If this admin genuinely has no permissions set for anything yet,
-  // /admin/access-denied is the honest, real destination — not a
-  // silent redirect loop or a page they can't actually see.
-  return firstAccessible?.href ?? "/admin/access-denied";
-}
-
 export async function signIn(prevState: AuthResult, formData: FormData): Promise<AuthResult> {
   const identifierRaw = (formData.get("identifier") as string)?.trim();
   const password = formData.get("password") as string;
@@ -241,10 +209,6 @@ export async function signIn(prevState: AuthResult, formData: FormData): Promise
 
   if (error) return { error: "Invalid login credentials." };
 
-  // Admin accounts land on the FIRST module they actually have real
-  // access to — not blindly on Dashboard, since our strict,
-  // explicit-only permission model means Dashboard access is never
-  // automatically granted to a limited-access admin.
   if (data.user) {
     const serviceClient = createServiceClient();
     const profileQuery = await serviceClient
@@ -261,7 +225,7 @@ export async function signIn(prevState: AuthResult, formData: FormData): Promise
         return { error: "Your admin account has been suspended." };
       }
       revalidatePath("/", "layout");
-      const landingPage = await getRealAdminLandingPage(serviceClient, data.user.id, profile.admin_role === "super_admin");
+      const landingPage = await getRealAdminLandingPage(data.user.id, profile.admin_role === "super_admin");
       redirect(landingPage);
     }
   }
@@ -302,8 +266,30 @@ export async function resetPassword(prevState: AuthResult, formData: FormData): 
   }
 
   const supabase = await createClient();
+  const { data: userData } = await supabase.auth.getUser();
   const { error } = await supabase.auth.updateUser({ password });
 
   if (error) return { error: error.message };
+
+  // A second real entry point into an admin session, not just fresh
+  // sign-in — an invited admin setting their password for the first
+  // time already has a valid session at this exact moment, from the
+  // magic-link exchange. Send them straight to whatever they're
+  // actually permitted to see, the same as a normal login would.
+  if (userData.user) {
+    const serviceClient = createServiceClient();
+    const profileQuery = await serviceClient
+      .from("users")
+      .select("is_admin, admin_role")
+      .eq("id", userData.user.id)
+      .single();
+    const profile = profileQuery.data as { is_admin: boolean; admin_role: string | null } | null;
+
+    if (profile?.is_admin) {
+      const landingPage = await getRealAdminLandingPage(userData.user.id, profile.admin_role === "super_admin");
+      redirect(landingPage);
+    }
+  }
+
   redirect("/login");
 }
