@@ -1,4 +1,5 @@
 import { createServerClient } from "@supabase/ssr";
+import { createClient as createServiceClient } from "@supabase/supabase-js";
 import { NextResponse, type NextRequest } from "next/server";
 
 const PROTECTED_ROUTES: string[] = ["/dashboard"];
@@ -67,6 +68,15 @@ export async function updateSession(request: NextRequest) {
     }
   );
 
+  // Service-role client — used ONLY for reading permission data,
+  // bypassing RLS. The cookie-based client above stays responsible
+  // for identity (who is this request from), matching the pattern
+  // used correctly everywhere else in this project.
+  const serviceClient = createServiceClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  );
+
   const {
     data: { user },
   } = await supabase.auth.getUser();
@@ -82,7 +92,7 @@ export async function updateSession(request: NextRequest) {
         : NextResponse.redirect(new URL("/login", request.url));
     }
 
-    const { data: profile } = await supabase
+    const { data: profile } = await serviceClient
       .from("users")
       .select("is_admin, admin_role, is_suspended")
       .eq("id", user.id)
@@ -94,9 +104,6 @@ export async function updateSession(request: NextRequest) {
         : NextResponse.redirect(new URL("/login", request.url));
     }
 
-    // Real, immediate enforcement — a suspended admin is signed out
-    // and blocked on their very next request, not just at their
-    // next fresh login.
     if (profile.is_suspended) {
       await supabase.auth.signOut();
       return isApiAdmin
@@ -122,7 +129,7 @@ export async function updateSession(request: NextRequest) {
           return NextResponse.json({ error: "Access denied for this route." }, { status: 403 });
         }
 
-        const { data: permission } = await supabase
+        const { data: permission } = await serviceClient
           .from("admin_permissions")
           .select("permission_level")
           .eq("admin_user_id", user.id)
@@ -145,7 +152,7 @@ export async function updateSession(request: NextRequest) {
           return NextResponse.rewrite(deniedUrl);
         }
 
-        const { data: permission } = await supabase
+        const { data: permission } = await serviceClient
           .from("admin_permissions")
           .select("permission_level")
           .eq("admin_user_id", user.id)
