@@ -176,6 +176,39 @@ export async function resendSignupCode(prevState: AuthResult, formData: FormData
   };
 }
 
+// Matches the real PAGE_MODULE_MAP order in middleware — the first
+// module here that the admin genuinely has read-or-higher access to
+// becomes their real post-login destination.
+const MODULE_LANDING_PAGES: { module: string; href: string }[] = [
+  { module: "Dashboard", href: "/admin" },
+  { module: "Traders", href: "/admin/users" },
+  { module: "Inventory", href: "/admin/inventory" },
+  { module: "Provisioning Queue", href: "/admin/operations/provisioning-queue" },
+  { module: "VPS Monitoring", href: "/admin/operations/vps-monitoring" },
+  { module: "Finance", href: "/admin/finance/payments" },
+  { module: "Risk", href: "/admin/risk/violations" },
+  { module: "Support", href: "/admin/system/support" },
+  { module: "Settings", href: "/admin/system/settings" },
+];
+
+async function getRealAdminLandingPage(serviceClient: ReturnType<typeof createServiceClient>, userId: string, isSuperAdmin: boolean): Promise<string> {
+  if (isSuperAdmin) return "/admin";
+
+  const permissionsQuery = await serviceClient
+    .from("admin_permissions")
+    .select("module, permission_level")
+    .eq("admin_user_id", userId)
+    .neq("permission_level", "no_access");
+
+  const granted = new Set(((permissionsQuery.data ?? []) as unknown as { module: string }[]).map((p) => p.module));
+
+  const firstAccessible = MODULE_LANDING_PAGES.find((m) => granted.has(m.module));
+  // If this admin genuinely has no permissions set for anything yet,
+  // /admin/access-denied is the honest, real destination — not a
+  // silent redirect loop or a page they can't actually see.
+  return firstAccessible?.href ?? "/admin/access-denied";
+}
+
 export async function signIn(prevState: AuthResult, formData: FormData): Promise<AuthResult> {
   const identifierRaw = (formData.get("identifier") as string)?.trim();
   const password = formData.get("password") as string;
@@ -208,19 +241,19 @@ export async function signIn(prevState: AuthResult, formData: FormData): Promise
 
   if (error) return { error: "Invalid login credentials." };
 
-  // Admin accounts land in the Operations Centre instead of the
-  // customer-facing homepage. Everyone else keeps the existing flow.
-  // Suspended admins are blocked and signed back out immediately,
-  // even though their password was genuinely correct.
+  // Admin accounts land on the FIRST module they actually have real
+  // access to — not blindly on Dashboard, since our strict,
+  // explicit-only permission model means Dashboard access is never
+  // automatically granted to a limited-access admin.
   if (data.user) {
     const serviceClient = createServiceClient();
     const profileQuery = await serviceClient
       .from("users")
-      .select("is_admin, is_suspended")
+      .select("is_admin, is_suspended, admin_role")
       .eq("id", data.user.id)
       .single();
 
-    const profile = profileQuery.data as { is_admin: boolean; is_suspended: boolean } | null;
+    const profile = profileQuery.data as { is_admin: boolean; is_suspended: boolean; admin_role: string | null } | null;
 
     if (profile?.is_admin) {
       if (profile.is_suspended) {
@@ -228,7 +261,8 @@ export async function signIn(prevState: AuthResult, formData: FormData): Promise
         return { error: "Your admin account has been suspended." };
       }
       revalidatePath("/", "layout");
-      redirect("/admin");
+      const landingPage = await getRealAdminLandingPage(serviceClient, data.user.id, profile.admin_role === "super_admin");
+      redirect(landingPage);
     }
   }
 
