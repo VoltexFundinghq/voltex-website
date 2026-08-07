@@ -87,6 +87,15 @@ export interface UserDetail {
   isAwaitingProvisioning: boolean;
 }
 
+// Reused everywhere a search term might be compared against a UUID
+// column — including it unconditionally in a .or() clause causes
+// PostgREST to return an error (silently collapsing to an empty
+// result via `?? []`) whenever the term isn't a valid UUID, which is
+// true for virtually every real search (names, emails, MT5 logins).
+function isValidUuid(term: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(term);
+}
+
 function challengeLabel(status: string | null, phase: number | null, size: number | null): string {
   if (!status || status !== "active") return "No Active Challenge";
   const sizeLabel = size ? `₦${size.toLocaleString()}` : "";
@@ -139,13 +148,20 @@ export async function getUsersPage(params: {
 
   if (search && search.trim()) {
     const term = search.trim();
-    const [byAccount, byChallengeId] = await Promise.all([
-      serviceClient.from("user_challenges").select("user_id").ilike("account_login", `%${term}%`),
-      serviceClient.from("user_challenges").select("user_id").ilike("id", `%${term}%`),
-    ]);
+    const queries = [serviceClient.from("user_challenges").select("user_id").ilike("account_login", `%${term}%`)];
+    // Only attempt the id-based match when the term could plausibly
+    // be part of a real UUID — a name or email search would
+    // otherwise return an error here (silently degrading to zero
+    // matches from this specific query, though the main query below
+    // is the one that matters most).
+    if (/^[0-9a-f-]+$/i.test(term)) {
+      queries.push(serviceClient.from("user_challenges").select("user_id").ilike("id", `%${term}%`));
+    }
+    const results = await Promise.all(queries);
     const ids = new Set<string>();
-    (byAccount.data as { user_id: string }[] ?? []).forEach((r) => ids.add(r.user_id));
-    (byChallengeId.data as { user_id: string }[] ?? []).forEach((r) => ids.add(r.user_id));
+    for (const r of results) {
+      ((r.data as { user_id: string }[]) ?? []).forEach((row) => ids.add(row.user_id));
+    }
     matchingUserIds = ids;
   }
 
@@ -158,8 +174,8 @@ export async function getUsersPage(params: {
       `full_name.ilike.%${term}%`,
       `email.ilike.%${term}%`,
       `username.ilike.%${term}%`,
-      `id.eq.${term}`,
     ];
+    if (isValidUuid(term)) orParts.push(`id.eq.${term}`);
     if (idList.length > 0) {
       orParts.push(`id.in.(${idList.join(",")})`);
     }

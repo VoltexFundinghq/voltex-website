@@ -173,7 +173,15 @@ export async function getInventoryPage(params: {
 
   if (search && search.trim()) {
     const term = search.trim();
-    query = query.or(`login.ilike.%${term}%,server.ilike.%${term}%,pa_label.ilike.%${term}%,id.eq.${term}`);
+    // "id" is a UUID column — attempting to eq-match a non-UUID
+    // search term (like a plain numeric MT5 login) against it inside
+    // a combined .or() clause throws, silently collapsing the whole
+    // query to an empty result. Only include that clause when the
+    // term is genuinely a valid UUID.
+    const isValidUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(term);
+    const orParts = [`login.ilike.%${term}%`, `server.ilike.%${term}%`, `pa_label.ilike.%${term}%`];
+    if (isValidUuid) orParts.push(`id.eq.${term}`);
+    query = query.or(orParts.join(","));
   }
 
   const allMatchingQuery = await query.order("created_at", { ascending: false });
