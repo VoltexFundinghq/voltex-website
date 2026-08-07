@@ -16,16 +16,17 @@ export async function POST(request: Request) {
   const serviceClient = createServiceClient();
 
   if (alive) {
-    await (serviceClient.from("trading_accounts") as any)
+    const { error } = await (serviceClient.from("trading_accounts") as any)
       .update({ last_verified_alive_at: new Date().toISOString() })
       .eq("id", accountId);
+
+    if (error) {
+      console.error(`Failed to update last_verified_alive_at for ${login}:`, error);
+      return NextResponse.json({ error: "Database update failed", details: error.message }, { status: 500 });
+    }
     return NextResponse.json({ status: "ok" });
   }
 
-  // Confirmed dead after two real attempts — a genuine, real finding
-  // worth a human's attention, not something to auto-finalize
-  // (e.g. auto-marking the account deleted) off a script's own
-  // conclusion alone.
   const { data: inserted, error } = await (serviceClient.from("manual_reviews") as any)
     .insert({
       source_type: "inventory_health",
