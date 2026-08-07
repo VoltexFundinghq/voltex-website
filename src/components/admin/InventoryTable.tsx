@@ -192,12 +192,26 @@ function ActionsMenu({ account, onUpdated }: { account: InventoryRow; onUpdated:
     } catch { alert("Failed to mark deleted."); }
   }
 
+  async function deleteAccount() {
+    setOpen(false);
+    if (!confirm(`Permanently remove ${account.login} from Inventory? This only works for accounts with no real trader history, and cannot be undone.`)) return;
+    try {
+      const res = await fetch(`/api/admin/inventory/${account.id}`, { method: "DELETE" });
+      const data = await res.json();
+      alert(res.ok ? "Account permanently removed." : data.error ?? "Failed to delete.");
+      if (res.ok) onUpdated();
+    } catch { alert("Failed to delete."); }
+  }
+
+  const canPermanentlyDelete = account.stage === "Available" || account.stage === "Deleted";
+
   const items = [
     ...(account.stage === "Available" ? [{ label: "Assign To Trader", icon: UserPlus, action: () => { setShowAssign(true); setOpen(false); } }] : []),
     { label: "Open VPS", icon: Server, action: () => setOpen(false) },
     ...(account.assignedTraderName ? [{ label: "View Trader", icon: Users2, action: () => setOpen(false) }, { label: "View Purchase", icon: Receipt, action: () => setOpen(false) }] : []),
     ...(account.stage !== "Retired" && account.stage !== "Deleted" ? [{ label: "Retire Account", icon: ExternalLink, action: retire }] : []),
     ...(account.stage === "Retired" ? [{ label: "Mark Deleted", icon: Trash2, action: markDeleted }] : []),
+    ...(canPermanentlyDelete ? [{ label: "Delete Account", icon: Trash2, action: deleteAccount, danger: true }] : []),
   ];
 
   return (
@@ -208,11 +222,11 @@ function ActionsMenu({ account, onUpdated }: { account: InventoryRow; onUpdated:
         </button>
         {open && (
           <div className="absolute right-0 top-full z-20 mt-1 w-52 rounded-lg border border-white/10 bg-[#0a0a0a] py-1 shadow-xl">
-            {items.map((item) => {
+            {items.map((item: any) => {
               const Icon = item.icon;
               return (
                 <button key={item.label} onClick={(e) => { e.stopPropagation(); item.action(); }}
-                  className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-zinc-300 hover:bg-white/5">
+                  className={`flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm hover:bg-white/5 ${item.danger ? "text-red-400" : "text-zinc-300"}`}>
                   <Icon className="h-3.5 w-3.5" strokeWidth={1.75} />
                   {item.label}
                 </button>
