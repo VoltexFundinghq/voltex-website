@@ -9,15 +9,11 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const { id } = await params;
   const serviceClient = createServiceClient();
 
-  // Real, unified confirmation — an account can reach "confirmed
-  // dead" via either the old 21-day retirement countdown, or the new
-  // automated health check flagging it. Both are genuinely the same
-  // real conclusion, just reached two different ways.
   const { error } = await (serviceClient.from("trading_accounts") as any)
-    .update({ status: "expired" })
+    .update({ status: "available", last_verified_alive_at: new Date().toISOString() })
     .eq("id", id)
-    .in("status", ["resetting", "flagged"]);
+    .eq("status", "flagged");
 
-  if (error) return NextResponse.json({ error: "Failed to mark deleted" }, { status: 500 });
+  if (error) return NextResponse.json({ error: "Failed to restore" }, { status: 500 });
   return NextResponse.json({ success: true });
 }

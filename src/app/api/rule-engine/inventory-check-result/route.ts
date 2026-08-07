@@ -27,6 +27,20 @@ export async function POST(request: Request) {
     return NextResponse.json({ status: "ok" });
   }
 
+  // Real, critical fix — actually move the account OUT of the
+  // available pool the moment it's flagged. Without this, a customer
+  // could genuinely be assigned an account already confirmed to have
+  // failed two real login attempts.
+  const { error: statusError } = await (serviceClient.from("trading_accounts") as any)
+    .update({ status: "flagged" })
+    .eq("id", accountId)
+    .eq("status", "available");
+
+  if (statusError) {
+    console.error(`Failed to flag account ${login}:`, statusError);
+    return NextResponse.json({ error: "Failed to update account status", details: statusError.message }, { status: 500 });
+  }
+
   const { data: inserted, error } = await (serviceClient.from("manual_reviews") as any)
     .insert({
       source_type: "inventory_health",
@@ -36,7 +50,7 @@ export async function POST(request: Request) {
       priority: "medium",
       status: "open",
       reason: "Account failed two consecutive login attempts",
-      description: `MT5 login ${login} (PA: ${paLabel ?? "unknown"}) failed to authenticate twice, roughly 5 minutes apart — likely deleted by Exness. Please confirm and mark deleted, then provision a replacement.`,
+      description: `MT5 login ${login} (PA: ${paLabel ?? "unknown"}) failed to authenticate twice, roughly 5 minutes apart — likely deleted by Exness. Account has been removed from the available pool. Confirm and mark deleted, or restore if this was a false positive, then provision a replacement if needed.`,
     })
     .select("id")
     .single();

@@ -11,7 +11,7 @@ export interface InventoryStats {
   healthLevel: "healthy" | "low" | "critical";
 }
 
-export type InventoryStage = "Available" | "Phase 1" | "Phase 2" | "Funded" | "Retired" | "Deleted" | "Reserved";
+export type InventoryStage = "Available" | "Phase 1" | "Phase 2" | "Funded" | "Retired" | "Deleted" | "Reserved" | "Flagged";
 export type VpsStatus = "not_assigned" | "assigned" | "monitoring" | "offline" | "error";
 
 export interface InventoryRow {
@@ -84,6 +84,7 @@ function determineStage(accountStatus: string, linkedPhase: number | null): Inve
   if (accountStatus === "resetting") return "Retired";
   if (accountStatus === "expired") return "Deleted";
   if (accountStatus === "reserved") return "Reserved";
+  if (accountStatus === "flagged") return "Flagged";
   if (accountStatus === "assigned" && linkedPhase !== null) {
     if (linkedPhase === 1) return "Phase 1";
     if (linkedPhase === 2) return "Phase 2";
@@ -173,11 +174,6 @@ export async function getInventoryPage(params: {
 
   if (search && search.trim()) {
     const term = search.trim();
-    // "id" is a UUID column — attempting to eq-match a non-UUID
-    // search term (like a plain numeric MT5 login) against it inside
-    // a combined .or() clause throws, silently collapsing the whole
-    // query to an empty result. Only include that clause when the
-    // term is genuinely a valid UUID.
     const isValidUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(term);
     const orParts = [`login.ilike.%${term}%`, `server.ilike.%${term}%`, `pa_label.ilike.%${term}%`];
     if (isValidUuid) orParts.push(`id.eq.${term}`);
@@ -231,7 +227,7 @@ export async function getInventoryPage(params: {
 
   const stageFilterMap: Record<string, InventoryStage> = {
     available: "Available", phase1: "Phase 1", phase2: "Phase 2",
-    funded: "Funded", retired: "Retired", deleted: "Deleted",
+    funded: "Funded", retired: "Retired", deleted: "Deleted", flagged: "Flagged",
   };
   if (stageFilterMap[filter]) enriched = enriched.filter((a) => a.stage === stageFilterMap[filter]);
 
