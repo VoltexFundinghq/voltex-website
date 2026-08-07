@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import {
   Search, ChevronDown, ChevronRight, MoreVertical, Server, Users2, Receipt,
-  UserPlus, ExternalLink, Trash2, CheckCircle2, Circle, Plus,
+  UserPlus, ExternalLink, Trash2, CheckCircle2, Circle, Plus, RotateCcw, AlertTriangle,
 } from "lucide-react";
 import BulkAddInventoryModal from "./BulkAddInventoryModal";
 
@@ -43,6 +43,7 @@ const FILTERS = [
   { value: "phase1", label: "Phase 1" },
   { value: "phase2", label: "Phase 2" },
   { value: "funded", label: "Funded" },
+  { value: "flagged", label: "Flagged" },
   { value: "retired", label: "Retired" },
   { value: "deleted", label: "Deleted" },
 ];
@@ -83,6 +84,7 @@ function stageBadge(stage: string): string {
   if (stage === "Available") return "bg-emerald-400/10 text-emerald-400";
   if (stage === "Phase 1" || stage === "Phase 2") return "bg-blue-400/10 text-blue-400";
   if (stage === "Funded") return "bg-[#D4AF37]/10 text-[#D4AF37]";
+  if (stage === "Flagged") return "bg-amber-400/10 text-amber-400";
   if (stage === "Retired") return "bg-white/5 text-zinc-400";
   if (stage === "Deleted") return "bg-red-400/10 text-red-400";
   return "bg-amber-400/10 text-amber-400";
@@ -192,6 +194,17 @@ function ActionsMenu({ account, onUpdated }: { account: InventoryRow; onUpdated:
     } catch { alert("Failed to mark deleted."); }
   }
 
+  async function restoreToAvailable() {
+    setOpen(false);
+    if (!confirm(`Restore ${account.login} to Available? Only do this if you've confirmed the flag was a false positive.`)) return;
+    try {
+      const res = await fetch(`/api/admin/inventory/${account.id}/restore-to-available`, { method: "POST" });
+      const data = await res.json();
+      alert(res.ok ? "Restored to Available." : data.error ?? "Failed to restore.");
+      if (res.ok) onUpdated();
+    } catch { alert("Failed to restore."); }
+  }
+
   async function deleteAccount() {
     setOpen(false);
     if (!confirm(`Permanently remove ${account.login} from Inventory? This only works for accounts with no real trader history, and cannot be undone.`)) return;
@@ -209,7 +222,11 @@ function ActionsMenu({ account, onUpdated }: { account: InventoryRow; onUpdated:
     ...(account.stage === "Available" ? [{ label: "Assign To Trader", icon: UserPlus, action: () => { setShowAssign(true); setOpen(false); } }] : []),
     { label: "Open VPS", icon: Server, action: () => setOpen(false) },
     ...(account.assignedTraderName ? [{ label: "View Trader", icon: Users2, action: () => setOpen(false) }, { label: "View Purchase", icon: Receipt, action: () => setOpen(false) }] : []),
-    ...(account.stage !== "Retired" && account.stage !== "Deleted" ? [{ label: "Retire Account", icon: ExternalLink, action: retire }] : []),
+    ...(account.stage === "Flagged" ? [
+      { label: "Confirm Deleted", icon: Trash2, action: markDeleted, danger: true },
+      { label: "Restore to Available", icon: RotateCcw, action: restoreToAvailable },
+    ] : []),
+    ...(account.stage !== "Retired" && account.stage !== "Deleted" && account.stage !== "Flagged" ? [{ label: "Retire Account", icon: ExternalLink, action: retire }] : []),
     ...(account.stage === "Retired" ? [{ label: "Mark Deleted", icon: Trash2, action: markDeleted }] : []),
     ...(canPermanentlyDelete ? [{ label: "Delete Account", icon: Trash2, action: deleteAccount, danger: true }] : []),
   ];
@@ -221,7 +238,7 @@ function ActionsMenu({ account, onUpdated }: { account: InventoryRow; onUpdated:
           <MoreVertical className="h-4 w-4" strokeWidth={1.75} />
         </button>
         {open && (
-          <div className="absolute right-0 top-full z-20 mt-1 w-52 rounded-lg border border-white/10 bg-[#0a0a0a] py-1 shadow-xl">
+          <div className="absolute right-0 top-full z-20 mt-1 w-56 rounded-lg border border-white/10 bg-[#0a0a0a] py-1 shadow-xl">
             {items.map((item: any) => {
               const Icon = item.icon;
               return (
@@ -274,6 +291,12 @@ function InventoryDetailPanel({ accountId }: { accountId: string }) {
             {detail.account.currentEquity !== null && <p className="text-zinc-400">Current Equity: <span className="text-zinc-200">{fmtMoney(detail.account.currentEquity)}</span></p>}
             <p className="text-zinc-400">Created: <span className="text-zinc-200">{fmtDate(detail.account.createdAt)}</span></p>
           </div>
+          {detail.account.stage === "Flagged" && (
+            <div className="mt-3 flex items-start gap-2 rounded-lg border border-amber-400/20 bg-amber-400/5 p-3">
+              <AlertTriangle className="h-4 w-4 flex-shrink-0 text-amber-400" />
+              <p className="text-xs text-amber-400">Failed two automated login attempts. Removed from the available pool pending review. Check Manual Reviews for details.</p>
+            </div>
+          )}
         </div>
 
         <div>
@@ -518,7 +541,12 @@ export default function InventoryTable({ initialAccounts, initialTotalCount }: {
                         <td className="px-4 py-3 text-zinc-400">{a.server ?? "—"}</td>
                         <td className="px-4 py-3 font-mono text-xs text-zinc-400">{a.paLabel ?? "—"}</td>
                         <td className="px-4 py-3 text-right font-mono text-zinc-300">{fmtMoney(a.accountSize)}</td>
-                        <td className="px-4 py-3"><span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${stageBadge(a.stage)}`}>{a.stage}</span></td>
+                        <td className="px-4 py-3">
+                          <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${stageBadge(a.stage)}`}>
+                            {a.stage === "Flagged" && <AlertTriangle className="h-3 w-3" />}
+                            {a.stage}
+                          </span>
+                        </td>
                         <td className="px-4 py-3 text-xs text-zinc-400">
                           {a.assignedTraderName ? (
                             <>
