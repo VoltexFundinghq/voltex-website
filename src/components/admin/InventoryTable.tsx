@@ -356,6 +356,8 @@ export default function InventoryTable({ initialAccounts, initialTotalCount }: {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [showBulkAdd, setShowBulkAdd] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkDeleting, setBulkDeleting] = useState(false);
 
   const fetchAccounts = useCallback((searchVal: string, filterVal: string, pageVal: number) => {
     setLoading(true);
@@ -363,7 +365,7 @@ export default function InventoryTable({ initialAccounts, initialTotalCount }: {
     if (searchVal) params.set("search", searchVal);
     fetch(`/api/admin/inventory?${params}`)
       .then((r) => r.json())
-      .then((data) => { setAccounts(data.accounts); setTotalCount(data.totalCount); setLoading(false); })
+      .then((data) => { setAccounts(data.accounts); setTotalCount(data.totalCount); setSelectedIds(new Set()); setLoading(false); })
       .catch(() => setLoading(false));
   }, []);
 
@@ -375,6 +377,51 @@ export default function InventoryTable({ initialAccounts, initialTotalCount }: {
   function handleFilterChange(f: string) {
     setFilter(f);
     setPage(1);
+  }
+
+  function isEligible(a: InventoryRow) {
+    return a.stage === "Available" || a.stage === "Deleted";
+  }
+
+  const eligibleAccounts = accounts.filter(isEligible);
+  const allEligibleSelected = eligibleAccounts.length > 0 && eligibleAccounts.every((a) => selectedIds.has(a.id));
+
+  function toggleSelectAll() {
+    if (allEligibleSelected) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(eligibleAccounts.map((a) => a.id)));
+    }
+  }
+
+  function toggleSelect(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  async function handleBulkDelete() {
+    if (selectedIds.size === 0) return;
+    if (!confirm(`Permanently remove ${selectedIds.size} selected account${selectedIds.size === 1 ? "" : "s"} from Inventory? This cannot be undone.`)) return;
+
+    setBulkDeleting(true);
+    try {
+      const res = await fetch("/api/admin/inventory/bulk-delete", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids: [...selectedIds] }),
+      });
+      const data = await res.json();
+      let message = `${data.deletedCount} account${data.deletedCount === 1 ? "" : "s"} permanently deleted.`;
+      if (data.skipped?.length > 0) {
+        message += `\n\n${data.skipped.length} skipped:\n` + data.skipped.map((s: any) => `${s.login} — ${s.reason}`).join("\n");
+      }
+      alert(message);
+      fetchAccounts(search, filter, page);
+    } catch {
+      alert("Bulk delete failed.");
+    }
+    setBulkDeleting(false);
   }
 
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
@@ -409,6 +456,18 @@ export default function InventoryTable({ initialAccounts, initialTotalCount }: {
         </div>
       </div>
 
+      {selectedIds.size > 0 && (
+        <div className="mb-4 flex items-center justify-between rounded-lg border border-red-400/30 bg-red-400/5 px-4 py-3">
+          <p className="text-sm text-red-400">{selectedIds.size} account{selectedIds.size === 1 ? "" : "s"} selected</p>
+          <div className="flex gap-2">
+            <button onClick={() => setSelectedIds(new Set())} className="rounded-lg border border-white/10 px-3 py-1.5 text-xs text-zinc-300 hover:bg-white/5">Clear Selection</button>
+            <button onClick={handleBulkDelete} disabled={bulkDeleting} className="flex items-center gap-1.5 rounded-lg bg-red-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-600 disabled:opacity-50">
+              <Trash2 className="h-3.5 w-3.5" /> {bulkDeleting ? "Deleting..." : "Delete Selected"}
+            </button>
+          </div>
+        </div>
+      )}
+
       {loading ? (
         <div className="rounded-xl border border-white/10 bg-white/[0.02] p-12 text-center"><p className="text-zinc-500">Loading...</p></div>
       ) : accounts.length === 0 ? (
@@ -422,6 +481,11 @@ export default function InventoryTable({ initialAccounts, initialTotalCount }: {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-white/10 bg-white/[0.03] text-left text-xs uppercase tracking-wide text-zinc-500">
+                  <th className="w-8 px-2 py-3">
+                    {eligibleAccounts.length > 0 && (
+                      <input type="checkbox" checked={allEligibleSelected} onChange={toggleSelectAll} className="h-3.5 w-3.5 rounded border-white/20 bg-white/5 accent-[#D4AF37]" />
+                    )}
+                  </th>
                   <th className="w-8 px-2 py-3"></th>
                   <th className="px-4 py-3 font-medium">MT5 Login</th>
                   <th className="px-4 py-3 font-medium">Server</th>
@@ -440,9 +504,15 @@ export default function InventoryTable({ initialAccounts, initialTotalCount }: {
               <tbody>
                 {accounts.map((a) => {
                   const vBadge = vpsBadge(a.vpsStatus);
+                  const eligible = isEligible(a);
                   return (
                     <>
                       <tr key={a.id} onClick={() => setExpandedId(expandedId === a.id ? null : a.id)} className="cursor-pointer border-b border-white/5 hover:bg-white/[0.02]">
+                        <td className="px-2 py-3" onClick={(e) => e.stopPropagation()}>
+                          {eligible && (
+                            <input type="checkbox" checked={selectedIds.has(a.id)} onChange={() => toggleSelect(a.id)} className="h-3.5 w-3.5 rounded border-white/20 bg-white/5 accent-[#D4AF37]" />
+                          )}
+                        </td>
                         <td className="px-2 py-3 text-zinc-600">{expandedId === a.id ? <ChevronDown className="h-4 w-4" strokeWidth={1.75} /> : <ChevronRight className="h-4 w-4" strokeWidth={1.75} />}</td>
                         <td className="px-4 py-3 font-mono text-zinc-300">{a.login}</td>
                         <td className="px-4 py-3 text-zinc-400">{a.server ?? "—"}</td>
@@ -465,7 +535,7 @@ export default function InventoryTable({ initialAccounts, initialTotalCount }: {
                         <td className="px-2 py-3"><ActionsMenu account={a} onUpdated={() => fetchAccounts(search, filter, page)} /></td>
                       </tr>
                       {expandedId === a.id && (
-                        <tr key={`${a.id}-detail`}><td colSpan={13} className="p-0"><InventoryDetailPanel accountId={a.id} /></td></tr>
+                        <tr key={`${a.id}-detail`}><td colSpan={14} className="p-0"><InventoryDetailPanel accountId={a.id} /></td></tr>
                       )}
                     </>
                   );
